@@ -1,0 +1,84 @@
+### Staat App Proxy — sample requests
+### Works with the VS Code REST Client / Rider HTTP client. Start the API first:
+###   dotnet run --project src/StaatAppProxy
+
+@host = http://localhost:5000
+
+### Liveness
+GET {{host}}/healthz
+
+###############################################################################
+# Echo — replies with everything it received, nothing masked
+###############################################################################
+
+### Echo a POST, headers and body come straight back
+POST {{host}}/echo/anything?trace=1
+Authorization: Bearer some-token-that-will-be-shown-in-full
+X-Correlation-Id: abc-123
+Content-Type: application/json
+
+{
+  "hello": "world"
+}
+
+### Echo works for any verb
+DELETE {{host}}/echo/resource/42
+
+###############################################################################
+# REST proxying — endpoint "jsonplaceholder" in endpoints.json
+###############################################################################
+
+### Forwarded to https://jsonplaceholder.typicode.com/todos/1
+GET {{host}}/api/jp/todos/1
+
+### Query strings and bodies are carried across unchanged
+POST {{host}}/api/jp/posts
+Content-Type: application/json
+
+{
+  "title": "from the proxy",
+  "body": "forwarded verbatim",
+  "userId": 1
+}
+
+###############################################################################
+# SSE aggregation — the reason this service exists
+###############################################################################
+
+### The raw stream, as the backend produces it (Development only)
+GET {{host}}/dev/sse-sample
+
+### The same stream, aggregated into a JSON array by the "sse-demo" endpoint:
+### [{ "event": "message", "data": { "seq": 1, ... } }, ...]
+GET {{host}}/api/sse-demo
+
+### A chunked text stream folded into one value by the "sse-tokens-demo"
+### endpoint (sseMode "concat"): { "result": "Hello, streaming world!" }
+GET {{host}}/api/sse-tokens
+
+###############################################################################
+# On-Behalf-Of — endpoint "orders", set "enabled": true in endpoints.json first
+###############################################################################
+
+### Without a bearer token: 401 explaining what is missing
+GET {{host}}/api/orders/1
+
+### With a bearer token but no AzureAd configuration: 502 saying so
+GET {{host}}/api/orders/1
+Authorization: Bearer some-real-entra-access-token
+
+###############################################################################
+# Diagnostics API — what the admin UI is built on
+###############################################################################
+
+### Endpoint configuration currently in force
+GET {{host}}/admin/api/config
+
+### The last 100 exchanges, newest first
+GET {{host}}/admin/api/traffic
+
+### One exchange in full — take an id from the list above
+GET {{host}}/admin/api/traffic/00000000-0000-0000-0000-000000000000
+
+### Empty the capture buffer
+DELETE {{host}}/admin/api/traffic

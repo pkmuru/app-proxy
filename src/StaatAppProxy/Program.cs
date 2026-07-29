@@ -1,0 +1,103 @@
+using System.Net;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
+using StaatAppProxy.Api;
+using StaatAppProxy.Auth;
+using StaatAppProxy.Config;
+using StaatAppProxy.Diagnostics;
+using StaatAppProxy.Proxy;
+
+const string CorsPolicy = "proxy-cors";
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddProblemDetails();
+
+// Browser clients call this service directly, so it terminates CORS itself. Backend CORS headers
+// are stripped on the way back (see HopByHopHeaders) so the browser only ever sees this policy.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddPolicy(CorsPolicy, policy =>
+{
+    policy.AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("*");
+
+    if (allowedOrigins.Length == 0)
+    {
+        // Nothing configured: this service is unauthenticated and internal by design, so any
+        // origin may call it. List origins in Cors:AllowedOrigins to lock it down.
+        policy.AllowAnyOrigin();
+    }
+    else
+    {
+        // A concrete list also permits cookie and Authorization credentials, which the
+        // any-origin form is not allowed to do.
+        policy.WithOrigins(allowedOrigins).AllowCredentials();
+    }
+}));
+builder.Services.AddSingleton<IEndpointConfigProvider, FileEndpointConfigProvider>();
+builder.Services.AddSingleton<TrafficStore>();
+builder.Services.AddSingleton<OboTokenService>();
+builder.Services.AddSingleton<Forwarder>();
+
+builder.Services
+    .AddHttpClient(Forwarder.HttpClientName)
+    // Timeouts are per endpoint and applied per request, so the client itself must not impose one.
+    .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        // A redirect is the caller's decision to make, not the proxy's.
+        AllowAutoRedirect = false,
+        // Cookies belong to the caller's session and must not pool in a shared handler.
+        UseCookies = false,
+        // Decompress here so captured bodies are readable rather than gzipped bytes.
+        AutomaticDecompression = DecompressionMethods.All,
+    });
+
+// Optional: with no connection string the app runs with no Azure dependency at all.
+var applicationInsights = builder.Configuration["ApplicationInsights:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(applicationInsights))
+{
+    builder.Services
+        .AddOpenTelemetry()
+        .UseAzureMonitor(options => options.ConnectionString = applicationInsights);
+}
+
+var app = builder.Build();
+
+// Load the endpoint config now, so a broken file fails at startup instead of on the first request.
+_ = app.Services.GetRequiredService<IEndpointConfigProvider>();
+
+app.UseExceptionHandler();
+
+// Ahead of the proxy, so browser preflight requests are answered here instead of being
+// forwarded to a backend that knows nothing about this proxy's origins.
+app.UseCors(CorsPolicy);
+
+// Ahead of the static files, so a configured route always beats anything sitting in wwwroot.
+app.UseMiddleware<ProxyMiddleware>();
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.MapAdminEndpoints();
+app.MapEchoEndpoints();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapDevSseEndpoints();
+}
+
+// Anything left over is a client-side route in the admin UI.
+app.MapFallback((IWebHostEnvironment environment) =>
+{
+    var index = Path.Combine(environment.WebRootPath ?? "", "index.html");
+
+    return File.Exists(index)
+        ? Results.File(index, "text/html")
+        // A fresh clone has no built UI yet. Say so, rather than returning a bare 404.
+        : Results.Problem(
+            title: "Admin UI has not been built",
+            detail: "Run `npm install && npm run build` in the ui/ folder, then reload. "
+                    + "The proxy and its APIs work either way.",
+            statusCode: StatusCodes.Status404NotFound);
+});
+
+app.Run();

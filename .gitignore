@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+*.swp
+
+# Local secrets — never commit a client secret
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Node / UI
+node_modules/
+ui/dist/
+*.log
+
+# Built UI, produced by `npm run build` in ui/. Vite owns this directory outright
+# (it is emptied on every build), so nothing in it is tracked.
+src/StaatAppProxy/wwwroot/

@@ -1,0 +1,40 @@
+{
+  "endpoints": [
+    {
+      "name": "jsonplaceholder",
+      "routePrefix": "/api/jp",
+      "backendBaseUrl": "https://jsonplaceholder.typicode.com",
+      "mode": "rest",
+      "auth": "none",
+      "timeoutSeconds": 30
+    },
+    {
+      "name": "sse-demo",
+      "routePrefix": "/api/sse-demo",
+      "backendBaseUrl": "http://localhost:5000/dev/sse-sample",
+      "mode": "sse",
+      "sseMode": "array",
+      "auth": "none",
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "sse-tokens-demo",
+      "routePrefix": "/api/sse-tokens",
+      "backendBaseUrl": "http://localhost:5000/dev/sse-tokens",
+      "mode": "sse",
+      "sseMode": "concat",
+      "auth": "none",
+      "timeoutSeconds": 60
+    },
+    {
+      "name": "orders",
+      "routePrefix": "/api/orders",
+      "backendBaseUrl": "https://orders.internal",
+      "mode": "rest",
+      "auth": "obo",
+      "oboScopes": ["api://orders-api/.default"],
+      "timeoutSeconds": 30,
+      "enabled": false
+    }
+  ]
+}
