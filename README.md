@@ -143,6 +143,34 @@ the caller's token must have been issued for *this* app's audience. MSAL caches 
 in memory per user and scope. Leave these unset and the proxy runs fine — only `obo` endpoints
 fail, and the UI says so.
 
+### Signing in from the admin UI
+
+Testing an `obo` endpoint needs a real user token, which normally means fishing one out of another
+application. Instead the **Test** tab can sign you in and use the token directly. It is optional
+and off until configured:
+
+```json
+"ClientAuth": {
+  "TenantId": "<tenant guid>",
+  "ClientId": "<SPA app registration client id>",
+  "Scopes": ["api://<this proxy's client id>/access_as_user"]
+}
+```
+
+This is a second, separate app registration: a **SPA** (public client, no secret) whose redirect
+URI is this service's origin — `http://localhost:5000` and `http://localhost:5173` for local work.
+Give it delegated permission to the scope the proxy exposes, so the token it receives has the
+proxy as its audience — which is exactly what the On-Behalf-Of exchange requires.
+
+The Test tab then lets you sign in, see the token and its decoded claims (handy for checking `aud`
+and `scp` when an exchange is rejected), copy it for use in curl or Postman, and send requests
+through any configured route with the bearer token attached. Every request made this way shows up
+in the Traffic tab like any other.
+
+The settings are served from the API at `/admin/api/client-auth`, so Entra ID is configured in one
+place rather than baked into the UI at build time. MSAL itself is only downloaded when sign-in is
+configured.
+
 ---
 
 ## Diagnostics
@@ -154,8 +182,9 @@ the body. Nothing is masked, including `Authorization`; seeing the real token is
 response headers and bodies. Bodies are cut at 64 KB and binary payloads are summarised rather
 than mangled. Nothing is written to disk, and a restart clears it.
 
-The UI has two tabs: **Endpoints** (the configuration in force, and where it was loaded from) and
-**Traffic** (recent exchanges, auto-refreshing every 5 seconds; click a row for the detail).
+The UI has three tabs: **Endpoints** (the configuration in force, and where it was loaded from),
+**Traffic** (recent exchanges, auto-refreshing every 5 seconds; click a row for the detail) and
+**Test** (send a request through any route, optionally signed in — see above).
 
 The same data is available directly:
 
@@ -163,6 +192,7 @@ The same data is available directly:
 | --------------------------- | ----------------------------------- |
 | `GET /healthz`              | Liveness                            |
 | `GET /admin/api/config`     | Endpoint configuration in force     |
+| `GET /admin/api/client-auth` | Entra ID settings the UI signs in with |
 | `GET /admin/api/traffic`    | Recent exchanges, newest first      |
 | `GET /admin/api/traffic/{id}` | One exchange in full              |
 | `DELETE /admin/api/traffic` | Empty the capture buffer            |
@@ -210,7 +240,9 @@ src/StaatAppProxy/
   Auth/   OboTokenService.cs       the On-Behalf-Of exchange
   Api/                             echo, admin, health, dev SSE samples
   Diagnostics/                     the in-memory capture buffer
-ui/                                Vite + React + Mantine admin UI
+ui/
+  src/auth.ts                      optional MSAL sign-in, loaded only when configured
+  src/pages/                       Endpoints, Traffic and Test tabs
 ```
 
 A request that matches a configured prefix is handled by `ProxyMiddleware` and never reaches

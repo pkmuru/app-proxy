@@ -21,6 +21,32 @@ public static class AdminEndpoints
             endpoints = config.Current,
         }));
 
+        // Lets the admin UI sign a user in and obtain a real access token to test "obo" endpoints
+        // with. Served from here so there is one place to configure Entra ID, rather than a
+        // separate build-time .env for the UI. No secret is involved: a SPA is a public client.
+        app.MapGet("/admin/api/client-auth", (IConfiguration configuration) =>
+        {
+            var tenantId = configuration["ClientAuth:TenantId"];
+            var clientId = configuration["ClientAuth:ClientId"];
+            var scopes = configuration.GetSection("ClientAuth:Scopes").Get<string[]>() ?? [];
+
+            var instance = configuration["ClientAuth:Instance"];
+            if (string.IsNullOrWhiteSpace(instance))
+            {
+                instance = "https://login.microsoftonline.com";
+            }
+
+            var enabled = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(clientId);
+
+            return Results.Ok(new
+            {
+                enabled,
+                clientId = clientId ?? "",
+                authority = enabled ? $"{instance.TrimEnd('/')}/{tenantId}" : "",
+                scopes,
+            });
+        });
+
         app.MapGet("/admin/api/traffic", (TrafficStore traffic) =>
             Results.Ok(traffic.GetAll().Select(TrafficSummary.From)));
 
