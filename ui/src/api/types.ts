@@ -12,6 +12,8 @@ export interface ProxyEndpoint {
   sseMode: SseMode
   auth: AuthMode
   oboScopes: string[]
+  forwardHeaders: string[]
+  headers: Record<string, string>
   timeoutSeconds: number
   enabled: boolean
 }
@@ -19,6 +21,7 @@ export interface ProxyEndpoint {
 export interface ProxyConfig {
   sourcePath: string
   oboConfigured: boolean
+  allowedHeaders: string[]
   endpoints: ProxyEndpoint[]
 }
 
@@ -35,8 +38,21 @@ export interface TrafficSummary {
 
 export interface CapturedExchange extends TrafficSummary {
   targetUrl: string | null
+
+  // Client -> proxy
   requestHeaders: Record<string, string>
   requestBody: string | null
+
+  // Proxy -> backend, after headers are trimmed to the allowlist. Null if it never got that far.
+  backendRequestHeaders: Record<string, string> | null
+  backendRequestBody: string | null
+
+  // Backend -> proxy, untransformed: the raw event stream on an SSE route.
+  backendStatusCode: number | null
+  backendResponseHeaders: Record<string, string> | null
+  backendResponseBody: string | null
+
+  // Proxy -> client, after any SSE aggregation
   responseHeaders: Record<string, string>
   responseBody: string | null
 }

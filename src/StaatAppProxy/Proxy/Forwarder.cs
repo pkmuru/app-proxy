@@ -16,9 +16,14 @@ namespace StaatAppProxy.Proxy;
 public sealed class Forwarder(
     IHttpClientFactory httpClientFactory,
     OboTokenService oboTokens,
+    HeaderPolicy headerPolicy,
     ILogger<Forwarder> log)
 {
     public const string HttpClientName = "proxy";
+
+    /// <summary>Identifies this service to backends, in place of whatever the caller's client sent.</summary>
+    private static readonly string UserAgent =
+        "StaatAppProxy/" + (typeof(Forwarder).Assembly.GetName().Version?.ToString(3) ?? "1.0");
 
     public async Task<ProxyResponse> ForwardAsync(
         HttpContext context,
@@ -34,10 +39,14 @@ public sealed class Forwarder(
             request.Content = new ByteArrayContent(requestBody);
         }
 
-        CopyRequestHeaders(context.Request, request);
+        CopyRequestHeaders(context.Request, request, endpoint);
+        ApplyIdentity(request, endpoint);
 
         if (endpoint.Mode == ProxyModes.Sse)
         {
+            // Replace rather than add: the backend is being asked for a stream, whatever the
+            // caller happened to say it accepts.
+            request.Headers.Accept.Clear();
             request.Headers.Accept.ParseAdd("text/event-stream");
         }
 
@@ -52,23 +61,49 @@ public sealed class Forwarder(
 
         var client = httpClientFactory.CreateClient(HttpClientName);
 
+        // Snapshot before sending: once the handler owns the message its content may be disposed.
+        var sentHeaders = Snapshot(request);
+
         try
         {
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+
             var headers = CopyResponseHeaders(response);
+            var backendBody = await response.Content.ReadAsByteArrayAsync(timeout.Token);
+
+            var trace = new BackendTrace
+            {
+                Method = request.Method.Method,
+                Url = targetUrl,
+                RequestHeaders = sentHeaders,
+                RequestBody = requestBody,
+                RequestContentType = request.Content?.Headers.ContentType?.ToString(),
+                StatusCode = (int)response.StatusCode,
+                ResponseHeaders = headers,
+                ResponseBody = backendBody,
+                ResponseContentType = response.Content.Headers.ContentType?.ToString(),
+            };
 
             // A failed SSE call has no stream worth aggregating — relay whatever the backend said.
             if (endpoint.Mode == ProxyModes.Sse && response.IsSuccessStatusCode)
             {
-                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
-                var aggregated = await SseAggregator.AggregateAsync(stream, endpoint.SseMode, timeout.Token);
+                var aggregated = SseAggregator.Aggregate(Encoding.UTF8.GetString(backendBody), endpoint.SseMode);
 
-                headers["Content-Type"] = ["application/json; charset=utf-8"];
-                return new ProxyResponse((int)response.StatusCode, headers, Encoding.UTF8.GetBytes(aggregated), targetUrl);
+                // Copied first: the aggregated response is JSON, but the backend's own headers are
+                // kept in the trace above exactly as they arrived.
+                var clientHeaders = new Dictionary<string, string[]>(headers, StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Content-Type"] = ["application/json; charset=utf-8"],
+                };
+
+                return new ProxyResponse(
+                    (int)response.StatusCode, clientHeaders, Encoding.UTF8.GetBytes(aggregated), targetUrl)
+                {
+                    Backend = trace,
+                };
             }
 
-            var body = await response.Content.ReadAsByteArrayAsync(timeout.Token);
-            return new ProxyResponse((int)response.StatusCode, headers, body, targetUrl);
+            return new ProxyResponse((int)response.StatusCode, headers, backendBody, targetUrl) { Backend = trace };
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -103,12 +138,18 @@ public sealed class Forwarder(
         return endpoint.BackendBaseUrl + suffix + request.QueryString.ToUriComponent();
     }
 
-    private static void CopyRequestHeaders(HttpRequest incoming, HttpRequestMessage outgoing)
+    /// <summary>
+    /// Copies only what <see cref="HeaderPolicy"/> allows. Everything else the caller sent —
+    /// cookies, Origin, Referer, the browser's User-Agent, X-Forwarded-* — is dropped, so the
+    /// backend sees a request from this service rather than a relayed browser call.
+    /// </summary>
+    private void CopyRequestHeaders(HttpRequest incoming, HttpRequestMessage outgoing, ProxyEndpoint endpoint)
     {
         foreach (var (name, values) in incoming.Headers)
         {
-            // Authorization is owned by ApplyAuthAsync.
-            if (HopByHopHeaders.SkipInRequest(name) || name.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+            // A header the endpoint sets itself wins outright; copying the caller's as well would
+            // send both values.
+            if (!headerPolicy.Allows(name, endpoint) || endpoint.Headers.ContainsKey(name))
             {
                 continue;
             }
@@ -121,6 +162,50 @@ public sealed class Forwarder(
                 outgoing.Content?.Headers.TryAddWithoutValidation(name, array);
             }
         }
+    }
+
+    /// <summary>Applies the endpoint's own fixed headers, then names this service to the backend.</summary>
+    /// <remarks>
+    /// Nothing is removed here, deliberately: HttpHeaders.Remove throws when the name belongs to
+    /// the other collection (User-Agent on content headers, Content-Type on request headers), and
+    /// the copy above already skips anything this endpoint sets, so there is nothing to displace.
+    /// </remarks>
+    private static void ApplyIdentity(HttpRequestMessage outgoing, ProxyEndpoint endpoint)
+    {
+        foreach (var (name, value) in endpoint.Headers)
+        {
+            if (!outgoing.Headers.TryAddWithoutValidation(name, value))
+            {
+                outgoing.Content?.Headers.TryAddWithoutValidation(name, value);
+            }
+        }
+
+        // Last, and only if the endpoint has not pinned one a fussy backend insists on.
+        if (!outgoing.Headers.Contains("User-Agent"))
+        {
+            outgoing.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+        }
+    }
+
+    /// <summary>The outgoing headers as they stand, for the traffic view.</summary>
+    private static Dictionary<string, string[]> Snapshot(HttpRequestMessage request)
+    {
+        var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (name, values) in request.Headers)
+        {
+            headers[name] = values.ToArray();
+        }
+
+        if (request.Content is not null)
+        {
+            foreach (var (name, values) in request.Content.Headers)
+            {
+                headers[name] = values.ToArray();
+            }
+        }
+
+        return headers;
     }
 
     private static Dictionary<string, string[]> CopyResponseHeaders(HttpResponseMessage response)

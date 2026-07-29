@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using System.Net;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using OpenTelemetry;
+using OpenTelemetry.Context.Propagation;
 using StaatAppProxy.Api;
 using StaatAppProxy.Auth;
 using StaatAppProxy.Config;
@@ -33,6 +36,7 @@ builder.Services.AddCors(options => options.AddPolicy(CorsPolicy, policy =>
     }
 }));
 builder.Services.AddSingleton<IEndpointConfigProvider, FileEndpointConfigProvider>();
+builder.Services.AddSingleton<HeaderPolicy>();
 builder.Services.AddSingleton<TrafficStore>();
 builder.Services.AddSingleton<OboTokenService>();
 builder.Services.AddSingleton<Forwarder>();
@@ -49,6 +53,11 @@ builder.Services
         UseCookies = false,
         // Decompress here so captured bodies are readable rather than gzipped bytes.
         AutomaticDecompression = DecompressionMethods.All,
+        // Suppresses the traceparent/tracestate headers .NET would otherwise add to every
+        // forwarded call. They announce that this request is one hop in a larger trace, which is
+        // exactly what backends must not be told. Scoped to this handler, so incoming requests are
+        // still correlated normally in Application Insights.
+        ActivityHeadersPropagator = DistributedContextPropagator.CreateNoOutputPropagator(),
     });
 
 // Optional: with no connection string the app runs with no Azure dependency at all.
@@ -58,6 +67,12 @@ if (!string.IsNullOrWhiteSpace(applicationInsights))
     builder.Services
         .AddOpenTelemetry()
         .UseAzureMonitor(options => options.ConnectionString = applicationInsights);
+
+    // Azure Monitor's HttpClient instrumentation injects traceparent itself, which the handler's
+    // own ActivityHeadersPropagator does not cover — so backends would still be told they are one
+    // hop in a larger trace. This turns W3C context propagation off process-wide. Traces within
+    // this service are unaffected; what is lost is stitching them to a caller's or a backend's.
+    Sdk.SetDefaultTextMapPropagator(new CompositeTextMapPropagator([]));
 }
 
 var app = builder.Build();

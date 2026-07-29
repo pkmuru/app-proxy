@@ -1,4 +1,5 @@
 using System.Text.Json;
+using StaatAppProxy.Proxy;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -149,6 +150,11 @@ public sealed class FileEndpointConfigProvider : IEndpointConfigProvider, IDispo
         SseMode = Clean(endpoint.SseMode).ToLowerInvariant(),
         Auth = Clean(endpoint.Auth).ToLowerInvariant(),
         OboScopes = endpoint.OboScopes?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(Clean).ToArray() ?? [],
+        ForwardHeaders = endpoint.ForwardHeaders?.Where(h => !string.IsNullOrWhiteSpace(h)).Select(Clean).ToArray() ?? [],
+        Headers = endpoint.Headers?
+            .Where(header => !string.IsNullOrWhiteSpace(header.Key))
+            .ToDictionary(header => Clean(header.Key), header => Clean(header.Value), StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
     };
 
     private static string Clean(string? value) => (value ?? "").Trim();
@@ -214,6 +220,14 @@ public sealed class FileEndpointConfigProvider : IEndpointConfigProvider, IDispo
             if (endpoint.TimeoutSeconds <= 0)
             {
                 errors.Add($"{label}: timeoutSeconds must be greater than zero (got {endpoint.TimeoutSeconds}).");
+            }
+
+            // Said out loud rather than ignored: someone listing "Authorization" here is expecting
+            // it to be forwarded, and would otherwise be debugging a header that silently vanished.
+            foreach (var header in endpoint.ForwardHeaders.Where(HopByHopHeaders.NeverForward))
+            {
+                errors.Add($"{label}: forwardHeaders cannot include \"{header}\" — the proxy sets that " +
+                           "header itself. Use \"auth\" for Authorization, or \"headers\" to pin a value.");
             }
         }
 

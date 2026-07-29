@@ -30,6 +30,17 @@ public static class HopByHopHeaders
         Is(name, "Accept-Encoding");
 
     /// <summary>
+    /// Headers the proxy owns outright, whichever way it is configured: Authorization is decided
+    /// by the endpoint's auth mode and User-Agent identifies this service, so letting a caller's
+    /// value through either would defeat the point. Config validation rejects an attempt to
+    /// forward one of these rather than ignoring it silently.
+    /// </summary>
+    public static bool NeverForward(string name) =>
+        SkipInRequest(name) ||
+        Is(name, "Authorization") ||
+        Is(name, "User-Agent");
+
+    /// <summary>
     /// Content-Encoding and Content-Length are dropped because responses arrive already
     /// decompressed and Kestrel re-frames them on the way out. The backend's CORS headers are
     /// dropped too: the proxy answers to the browser, so its own CORS policy is the only one that

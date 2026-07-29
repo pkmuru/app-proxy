@@ -158,7 +158,14 @@ export function TrafficPage() {
   )
 }
 
+/**
+ * All four sides of an exchange, in the order they happened. The two backend-facing halves are
+ * the point: request headers are trimmed to an allowlist and an SSE stream is folded into JSON,
+ * so what the client asked for and what the backend saw are deliberately not the same thing.
+ */
 function ExchangeDetail({ exchange }: { exchange: CapturedExchange }) {
+  const reachedBackend = exchange.backendRequestHeaders !== null
+
   return (
     <Stack gap="sm">
       <Group gap="xs">
@@ -173,23 +180,50 @@ function ExchangeDetail({ exchange }: { exchange: CapturedExchange }) {
 
       <Code block>{exchange.path}</Code>
 
-      {exchange.targetUrl && (
-        <Text size="xs" c="dimmed" style={{ wordBreak: 'break-all' }}>
-          Forwarded to {exchange.targetUrl}
-        </Text>
-      )}
-
       {exchange.error && (
         <Alert color="red" title="Proxy error">
           {exchange.error}
         </Alert>
       )}
 
-      <Divider label="Request" labelPosition="left" />
+      <Divider label="1 · Client → proxy" labelPosition="left" />
       <HeaderList headers={exchange.requestHeaders} />
       <BodyBlock body={exchange.requestBody} />
 
-      <Divider label="Response" labelPosition="left" />
+      {reachedBackend ? (
+        <>
+          <Divider label="2 · Proxy → backend" labelPosition="left" />
+          {exchange.targetUrl && (
+            <Code block style={{ wordBreak: 'break-all' }}>
+              {exchange.method} {exchange.targetUrl}
+            </Code>
+          )}
+          <HeaderList headers={exchange.backendRequestHeaders ?? {}} />
+          <BodyBlock body={exchange.backendRequestBody} />
+
+          <Divider label="3 · Backend → proxy" labelPosition="left" />
+          {exchange.backendStatusCode !== null && (
+            <Group gap="xs">
+              <Badge variant="light" color={statusColor(exchange.backendStatusCode)}>
+                {exchange.backendStatusCode}
+              </Badge>
+              <Text size="xs" c="dimmed">
+                as the backend answered, before any transformation
+              </Text>
+            </Group>
+          )}
+          <HeaderList headers={exchange.backendResponseHeaders ?? {}} />
+          <BodyBlock body={exchange.backendResponseBody} />
+        </>
+      ) : (
+        <Alert color="gray" title="Never reached a backend">
+          The proxy answered this itself — a missing bearer token, a failed token exchange, or an
+          endpoint that could not be reached at all.
+          {exchange.targetUrl && ` Target would have been ${exchange.targetUrl}.`}
+        </Alert>
+      )}
+
+      <Divider label="4 · Proxy → client" labelPosition="left" />
       <HeaderList headers={exchange.responseHeaders} />
       <BodyBlock body={exchange.responseBody} />
     </Stack>

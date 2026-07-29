@@ -16,6 +16,12 @@ public sealed record ProxyResponse(
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// The backend half of the exchange, for the traffic view. Null when the call never happened —
+    /// a missing bearer token on an "obo" endpoint, for instance, is refused before that point.
+    /// </summary>
+    public BackendTrace? Backend { get; init; }
+
     public string? ContentType =>
         Headers.TryGetValue("Content-Type", out var values) ? values.FirstOrDefault() : null;
 
@@ -33,4 +39,30 @@ public sealed record ProxyResponse(
 
         return new ProxyResponse(status, headers, body, targetUrl, $"{title}: {detail}");
     }
+}
+
+/// <summary>
+/// What the proxy actually sent to a backend and what came back, before any transformation.
+/// </summary>
+/// <remarks>
+/// Recorded separately from the client-facing pair because the two differ in ways that matter when
+/// something is wrong: request headers are trimmed to an allowlist and given this service's own
+/// identity, and an SSE response is folded into JSON. Without this, the traffic view would show
+/// what was asked for and what was answered, but not what happened in between.
+/// </remarks>
+public sealed record BackendTrace
+{
+    public required string Method { get; init; }
+    public required string Url { get; init; }
+
+    public required Dictionary<string, string[]> RequestHeaders { get; init; }
+    public required byte[] RequestBody { get; init; }
+    public string? RequestContentType { get; init; }
+
+    public required int StatusCode { get; init; }
+    public required Dictionary<string, string[]> ResponseHeaders { get; init; }
+
+    /// <summary>Untransformed: the raw event stream when the endpoint aggregates SSE.</summary>
+    public required byte[] ResponseBody { get; init; }
+    public string? ResponseContentType { get; init; }
 }

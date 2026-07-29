@@ -23,11 +23,30 @@ public sealed record CapturedExchange
     public required int StatusCode { get; init; }
     public required long DurationMs { get; init; }
 
+    /// <summary>What the client sent to the proxy.</summary>
     public required IReadOnlyDictionary<string, string> RequestHeaders { get; init; }
+
     public string? RequestBody { get; init; }
 
+    /// <summary>What the proxy sent back to the client, after any SSE aggregation.</summary>
     public required IReadOnlyDictionary<string, string> ResponseHeaders { get; init; }
+
     public string? ResponseBody { get; init; }
+
+    /// <summary>
+    /// What the proxy sent on to the backend, after headers were trimmed to the allowlist and the
+    /// endpoint's own were applied. Null when the request never reached a backend.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? BackendRequestHeaders { get; init; }
+
+    public string? BackendRequestBody { get; init; }
+
+    /// <summary>What the backend answered, untransformed — the raw event stream for SSE routes.</summary>
+    public int? BackendStatusCode { get; init; }
+
+    public IReadOnlyDictionary<string, string>? BackendResponseHeaders { get; init; }
+
+    public string? BackendResponseBody { get; init; }
 
     /// <summary>Set when the proxy itself failed, e.g. the backend was unreachable.</summary>
     public string? Error { get; init; }

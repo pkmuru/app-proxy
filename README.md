@@ -81,6 +81,8 @@ configuration stays in force. YAML works too: point `EndpointConfig:Path` at a `
 | `sseMode`        | `array`   | `array` or `concat` — see below. Only read when `mode` is `sse`              |
 | `auth`           | `none`    | `none`, `passthrough` or `obo`                                               |
 | `oboScopes`      | `[]`      | Scopes for the On-Behalf-Of exchange. Required when `auth` is `obo`          |
+| `forwardHeaders` | `[]`      | Caller headers this route lets through on top of the global allowlist        |
+| `headers`        | `{}`      | Fixed headers added to every backend call, e.g. an API key                    |
 | `timeoutSeconds` | `30`      | Budget for the whole call, including reading an SSE stream to the end        |
 | `enabled`        | `true`    | Set `false` to take a route out of service without deleting it               |
 
@@ -118,6 +120,48 @@ JSON it is returned directly rather than wrapped in `result`.
 
 If the backend answers an SSE endpoint with an error status, that response is relayed untouched
 rather than aggregated.
+
+### What backends actually receive
+
+A backend should see an ordinary call from this service, not a relayed browser request — several
+reject traffic that carries browser fingerprints. So headers are filtered by an **allowlist**, not
+a denylist: anything not named is dropped, which means a header a client starts sending later
+cannot leak by accident.
+
+By default only these cross:
+
+```json
+"Forwarding": { "AllowedHeaders": [ "Accept", "Content-Type" ] }
+```
+
+plus `Authorization` according to the route's `auth` mode. Dropped are cookies, `Origin`,
+`Referer`, the caller's `User-Agent`, `Sec-Fetch-*`, `sec-ch-ua-*`, `X-Forwarded-*`, `Via`,
+`X-Requested-With` and everything else. In their place the proxy sends
+`User-Agent: StaatAppProxy/<version>`.
+
+`traceparent` is suppressed too. .NET adds it to outbound calls automatically, and it announces
+that the request is one hop in a larger trace. Turning it off costs the trace link between this
+service and a backend's own telemetry; spans within this service are unaffected.
+
+Two escape hatches, per route:
+
+```json
+{
+  "name": "orders",
+  "forwardHeaders": ["X-Correlation-Id"],
+  "headers": { "X-Api-Key": "…", "User-Agent": "LegacyClient/2.1" }
+}
+```
+
+`forwardHeaders` lets specific caller headers through. `headers` adds fixed values the caller never
+sees and wins over everything else, so it can also pin a `User-Agent` a fussy backend insists on.
+Naming a header the proxy owns — `Authorization`, `Host`, `Content-Length` — in `forwardHeaders` is
+a config error rather than a silent no-op, because the alternative is debugging a header that
+vanished without explanation.
+
+Values in `headers` appear in the Endpoints tab, which renders raw configuration. That is
+consistent with the rest of this service showing tokens unmasked, but it does mean an API key there
+is visible to anyone who can reach the UI.
 
 ### Authentication modes
 
@@ -178,9 +222,21 @@ configured.
 **Echo** — `/echo/{anything}`, any verb. Replies with the method, path, query, every header, and
 the body. Nothing is masked, including `Authorization`; seeing the real token is the point.
 
-**Traffic** — the last 100 exchanges are held in memory and shown in the UI, with full request and
-response headers and bodies. Bodies are cut at 64 KB and binary payloads are summarised rather
-than mangled. Nothing is written to disk, and a restart clears it.
+**Traffic** — the last 100 exchanges are held in memory and shown in the UI. Each one records all
+four sides, in order:
+
+1. **Client → proxy** — what arrived, headers and body untouched
+2. **Proxy → backend** — what was actually sent on, after trimming and injection
+3. **Backend → proxy** — what came back untransformed, including the raw SSE event stream
+4. **Proxy → client** — what was returned, after any aggregation
+
+The middle two are the point. Header trimming and SSE aggregation mean that what a client asked for
+and what a backend saw are deliberately different, and without both halves a mismatch is very hard
+to pin down. A request refused before it reached a backend — a missing bearer token, a failed token
+exchange — says so instead of showing empty sections.
+
+Bodies are cut at 64 KB and binary payloads are summarised rather than mangled. Nothing is written
+to disk, and a restart clears it.
 
 The UI has three tabs: **Endpoints** (the configuration in force, and where it was loaded from),
 **Traffic** (recent exchanges, auto-refreshing every 5 seconds; click a row for the detail) and

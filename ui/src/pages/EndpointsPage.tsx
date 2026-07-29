@@ -26,6 +26,14 @@ export function EndpointsPage() {
         Loaded from <Code>{data.sourcePath}</Code> — edits to that file are picked up without a restart.
       </Text>
 
+      <Alert color="gray" title="Backend calls are trimmed">
+        Of the caller&apos;s headers only <Code>{data.allowedHeaders.join(', ')}</Code> are passed on, plus{' '}
+        <Code>Authorization</Code> according to each route&apos;s auth mode. Cookies, <Code>Origin</Code>,{' '}
+        <Code>Referer</Code>, the caller&apos;s <Code>User-Agent</Code> and <Code>X-Forwarded-*</Code> are
+        dropped, so a backend sees a call from this service rather than a relayed browser request. Add
+        exceptions per route with <Code>forwardHeaders</Code>.
+      </Alert>
+
       {oboUnusable && (
         <Alert color="yellow" title="On-Behalf-Of is not configured">
           Endpoints below use <Code>obo</Code>, but <Code>AzureAd:TenantId</Code>, <Code>ClientId</Code> and{' '}
@@ -64,6 +72,18 @@ export function EndpointsPage() {
                   <Text size="sm" style={{ wordBreak: 'break-all' }}>
                     {endpoint.backendBaseUrl}
                   </Text>
+
+                  {endpoint.forwardHeaders.length > 0 && (
+                    <Text size="xs" c="dimmed" mt={4}>
+                      also forwards {endpoint.forwardHeaders.join(', ')}
+                    </Text>
+                  )}
+
+                  {Object.keys(endpoint.headers).length > 0 && (
+                    <Text size="xs" c="dimmed" mt={2}>
+                      adds {Object.keys(endpoint.headers).join(', ')}
+                    </Text>
+                  )}
                 </Table.Td>
 
                 <Table.Td>

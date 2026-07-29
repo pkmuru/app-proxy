@@ -11,13 +11,18 @@ namespace StaatAppProxy.Proxy;
 /// </summary>
 public static class SseAggregator
 {
-    public static async Task<string> AggregateAsync(Stream stream, string sseMode, CancellationToken cancellationToken)
+    /// <summary>
+    /// Takes the stream already read into memory rather than reading it here. Aggregation cannot
+    /// answer until the last event has arrived anyway, and holding the raw text lets the traffic
+    /// view show the original events beside the JSON they were folded into.
+    /// </summary>
+    public static string Aggregate(string stream, string sseMode)
     {
-        var events = await ReadEventsAsync(stream, cancellationToken);
+        var events = ReadEvents(stream);
         return sseMode == SseModes.Concat ? Concatenated(events) : AsArray(events);
     }
 
-    private static async Task<List<SseEvent>> ReadEventsAsync(Stream stream, CancellationToken cancellationToken)
+    private static List<SseEvent> ReadEvents(string stream)
     {
         var events = new List<SseEvent>();
         var data = new StringBuilder();
@@ -36,8 +41,8 @@ public static class SseAggregator
             data.Clear();
         }
 
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        using var reader = new StringReader(stream);
+        while (reader.ReadLine() is { } line)
         {
             if (line.Length == 0)
             {

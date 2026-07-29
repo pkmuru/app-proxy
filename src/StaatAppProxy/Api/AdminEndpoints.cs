@@ -1,6 +1,7 @@
 using StaatAppProxy.Auth;
 using StaatAppProxy.Config;
 using StaatAppProxy.Diagnostics;
+using StaatAppProxy.Proxy;
 
 namespace StaatAppProxy.Api;
 
@@ -14,12 +15,14 @@ public static class AdminEndpoints
     {
         app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
-        app.MapGet("/admin/api/config", (IEndpointConfigProvider config, OboTokenService obo) => Results.Ok(new
-        {
-            sourcePath = config.SourcePath,
-            oboConfigured = obo.IsConfigured,
-            endpoints = config.Current,
-        }));
+        app.MapGet("/admin/api/config", (IEndpointConfigProvider config, OboTokenService obo, HeaderPolicy headers) =>
+            Results.Ok(new
+            {
+                sourcePath = config.SourcePath,
+                oboConfigured = obo.IsConfigured,
+                allowedHeaders = headers.Allowed,
+                endpoints = config.Current,
+            }));
 
         // Lets the admin UI sign a user in and obtain a real access token to test "obo" endpoints
         // with. Served from here so there is one place to configure Entra ID, rather than a

@@ -27,6 +27,19 @@ public sealed record ProxyEndpoint
     /// <summary>Scopes requested for the On-Behalf-Of exchange. Required when <see cref="Auth"/> is "obo".</summary>
     public string[] OboScopes { get; init; } = [];
 
+    /// <summary>
+    /// Extra caller headers this endpoint lets through, on top of the global allowlist in
+    /// <c>Forwarding:AllowedHeaders</c>. Use for application headers a backend genuinely needs,
+    /// e.g. "X-Correlation-Id".
+    /// </summary>
+    public string[] ForwardHeaders { get; init; } = [];
+
+    /// <summary>
+    /// Fixed headers added to every backend call for this endpoint, e.g. an API key the caller
+    /// never sees. These win over anything else, so they can also pin a specific User-Agent.
+    /// </summary>
+    public Dictionary<string, string> Headers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Budget for the whole backend call, including reading an SSE stream to completion.</summary>
     public int TimeoutSeconds { get; init; } = 30;
 
