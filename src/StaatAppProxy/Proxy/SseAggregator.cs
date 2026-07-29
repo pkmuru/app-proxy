@@ -16,10 +16,10 @@ public static class SseAggregator
     /// answer until the last event has arrived anyway, and holding the raw text lets the traffic
     /// view show the original events beside the JSON they were folded into.
     /// </summary>
-    public static string Aggregate(string stream, string sseMode)
+    public static string Aggregate(string stream, string sseMode, string concatField)
     {
         var events = ReadEvents(stream);
-        return sseMode == SseModes.Concat ? Concatenated(events) : AsArray(events);
+        return sseMode == SseModes.Concat ? Concatenated(events, concatField) : AsArray(events);
     }
 
     private static List<SseEvent> ReadEvents(string stream)
@@ -109,11 +109,41 @@ public static class SseAggregator
     /// All payloads joined in order, for streams that deliver one logical result in chunks.
     /// A joined payload that is itself valid JSON is returned as-is rather than double-wrapped.
     /// </summary>
-    private static string Concatenated(List<SseEvent> events)
+    /// <remarks>
+    /// With <paramref name="field"/> set, each event is read as a JSON object and only that
+    /// property contributes — the usual token-streaming shape, where the text arrives wrapped in
+    /// an envelope nobody wants concatenated. Events without the property, a trailing "done" for
+    /// instance, add nothing. If no event carries it at all the raw payloads are joined instead,
+    /// so a field name that does not match shows the stream rather than an empty result.
+    /// </remarks>
+    private static string Concatenated(List<SseEvent> events, string field)
     {
-        var joined = string.Concat(events.Select(e => e.Data));
+        var payloads = events.Select(sseEvent => Payload(sseEvent.Data, field)).ToList();
+
+        var joined = payloads.Any(payload => payload.Length > 0)
+            ? string.Concat(payloads)
+            : string.Concat(events.Select(sseEvent => sseEvent.Data));
+
         return TryParseJson(joined)?.ToJsonString()
                ?? new JsonObject { ["result"] = joined }.ToJsonString();
+    }
+
+    private static string Payload(string data, string field)
+    {
+        if (field.Length == 0)
+        {
+            return data;
+        }
+
+        if (TryParseJson(data) is not JsonObject json ||
+            !json.TryGetPropertyValue(field, out var value) ||
+            value is null)
+        {
+            return "";
+        }
+
+        // A string contributes its text; anything else its JSON, so nothing is quietly lost.
+        return value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
     }
 
     private static JsonNode? TryParseJson(string value)

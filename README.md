@@ -79,6 +79,7 @@ configuration stays in force. YAML works too: point `EndpointConfig:Path` at a `
 | `backendBaseUrl` | required  | Absolute `http`/`https` base URL of the backend                              |
 | `mode`           | `rest`    | `rest` passes the response through, `sse` aggregates an event stream         |
 | `sseMode`        | `array`   | `array` or `concat` — see below. Only read when `mode` is `sse`              |
+| `sseConcatField` | `value`   | Property taken from each event in `concat` mode. `""` joins whole payloads   |
 | `auth`           | `none`    | `none`, `passthrough` or `obo`                                               |
 | `oboScopes`      | `[]`      | Scopes for the On-Behalf-Of exchange. Required when `auth` is `obo`          |
 | `forwardHeaders` | `[]`      | Caller headers this route lets through on top of the global allowlist        |
@@ -108,15 +109,36 @@ application/json`.
 ```
 
 `"sseMode": "concat"` — payloads joined in order. Use this when the backend streams one logical
-answer in pieces, token-by-token style:
+answer in pieces, token-by-token style. Given a stream like
+
+```
+data: {"value":"Hello","seq":1}
+data: {"value":", streaming","seq":2}
+data: {"value":" world!","seq":3}
+data: {"finished":true}
+```
+
+it returns
 
 ```json
 { "result": "Hello, streaming world!" }
 ```
 
-Each event's `data` is parsed as JSON when it is valid JSON, and kept as a string otherwise — so a
-sentinel like `[DONE]` survives intact. In `concat` mode, if the joined payload is itself valid
-JSON it is returned directly rather than wrapped in `result`.
+Only the `value` property of each event contributes — the text, not the envelope it arrived in.
+Events without that property, such as the trailing `{"finished":true}`, add nothing. Change the
+property with `sseConcatField`, or set it to `""` to join whole payloads as they arrive:
+
+```json
+{ "name": "chat", "mode": "sse", "sseMode": "concat", "sseConcatField": "delta" }
+```
+
+If no event carries the named property the raw payloads are joined instead, so a field name that
+does not match shows you the stream rather than an empty result.
+
+In `array` mode each event's `data` is parsed as JSON when it is valid JSON and kept as a string
+otherwise, so a sentinel like `[DONE]` survives intact. In `concat` mode, if the joined result is
+itself valid JSON it is returned directly rather than wrapped in `result` — which is what makes
+streamed-JSON backends work.
 
 If the backend answers an SSE endpoint with an error status, that response is relayed untouched
 rather than aggregated.

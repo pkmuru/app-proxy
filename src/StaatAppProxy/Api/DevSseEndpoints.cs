@@ -22,16 +22,19 @@ public static class DevSseEndpoints
             await WriteEventAsync(context, "done", """{"finished":true}""");
         });
 
-        // Token-at-a-time text — the shape "concat" mode is built for.
+        // Token-at-a-time text in an envelope — the shape "concat" mode is built for.
         app.MapGet("/dev/sse-tokens", async (HttpContext context) =>
         {
             StartEventStream(context);
 
             foreach (var token in new[] { "Hello", ", ", "streaming", " ", "world", "!" })
             {
-                await WriteEventAsync(context, "message", token);
+                await WriteEventAsync(context, "message", $$"""{"value":"{{token}}","seq":1}""");
                 await Task.Delay(100, context.RequestAborted);
             }
+
+            // No "value", so concat mode contributes nothing from it.
+            await WriteEventAsync(context, "done", """{"finished":true}""");
         });
     }
 

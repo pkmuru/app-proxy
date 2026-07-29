@@ -2,7 +2,17 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Anchor, Badge, Code, Collapse, Loader, Paper, Stack, Table, Text } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { api } from '../api/client'
+import type { ProxyEndpoint } from '../api/types'
 import { authColor } from '../format'
+
+/** Names the field concat mode extracts, since that changes the response shape entirely. */
+function modeLabel(endpoint: ProxyEndpoint): string {
+  if (endpoint.mode !== 'sse') return 'rest'
+
+  return endpoint.sseMode === 'concat' && endpoint.sseConcatField
+    ? `sse · concat(${endpoint.sseConcatField})`
+    : `sse · ${endpoint.sseMode}`
+}
 
 export function EndpointsPage() {
   const { data, isPending, error } = useQuery({ queryKey: ['config'], queryFn: api.config })
@@ -88,7 +98,7 @@ export function EndpointsPage() {
 
                 <Table.Td>
                   <Badge variant="light" color={endpoint.mode === 'sse' ? 'grape' : 'blue'}>
-                    {endpoint.mode === 'sse' ? `sse · ${endpoint.sseMode}` : 'rest'}
+                    {modeLabel(endpoint)}
                   </Badge>
                 </Table.Td>
 

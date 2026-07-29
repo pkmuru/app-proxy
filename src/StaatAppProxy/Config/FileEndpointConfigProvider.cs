@@ -148,6 +148,7 @@ public sealed class FileEndpointConfigProvider : IEndpointConfigProvider, IDispo
         BackendBaseUrl = Clean(endpoint.BackendBaseUrl).TrimEnd('/'),
         Mode = Clean(endpoint.Mode).ToLowerInvariant(),
         SseMode = Clean(endpoint.SseMode).ToLowerInvariant(),
+        SseConcatField = Clean(endpoint.SseConcatField),
         Auth = Clean(endpoint.Auth).ToLowerInvariant(),
         OboScopes = endpoint.OboScopes?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(Clean).ToArray() ?? [],
         ForwardHeaders = endpoint.ForwardHeaders?.Where(h => !string.IsNullOrWhiteSpace(h)).Select(Clean).ToArray() ?? [],

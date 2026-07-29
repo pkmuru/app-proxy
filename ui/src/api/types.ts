@@ -10,6 +10,7 @@ export interface ProxyEndpoint {
   backendBaseUrl: string
   mode: ProxyMode
   sseMode: SseMode
+  sseConcatField: string
   auth: AuthMode
   oboScopes: string[]
   forwardHeaders: string[]

@@ -87,7 +87,8 @@ public sealed class Forwarder(
             // A failed SSE call has no stream worth aggregating — relay whatever the backend said.
             if (endpoint.Mode == ProxyModes.Sse && response.IsSuccessStatusCode)
             {
-                var aggregated = SseAggregator.Aggregate(Encoding.UTF8.GetString(backendBody), endpoint.SseMode);
+                var aggregated = SseAggregator.Aggregate(
+                    Encoding.UTF8.GetString(backendBody), endpoint.SseMode, endpoint.SseConcatField);
 
                 // Copied first: the aggregated response is JSON, but the backend's own headers are
                 // kept in the trace above exactly as they arrived.

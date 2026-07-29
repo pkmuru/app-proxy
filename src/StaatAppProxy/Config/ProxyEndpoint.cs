@@ -21,6 +21,12 @@ public sealed record ProxyEndpoint
     /// <summary>How SSE events are combined: "array" or "concat". Ignored unless <see cref="Mode"/> is "sse".</summary>
     public string SseMode { get; init; } = SseModes.Array;
 
+    /// <summary>
+    /// In "concat" mode, the JSON property to take from each event rather than the whole payload —
+    /// the text inside a token-streaming envelope. Set to "" to join raw payloads instead.
+    /// </summary>
+    public string SseConcatField { get; init; } = "value";
+
     /// <summary>"none", "passthrough" or "obo".</summary>
     public string Auth { get; init; } = AuthModes.None;
 
