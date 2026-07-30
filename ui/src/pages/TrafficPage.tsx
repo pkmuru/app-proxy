@@ -202,23 +202,32 @@ function ExchangeDetail({ exchange }: { exchange: CapturedExchange }) {
           <BodyBlock body={exchange.backendRequestBody} />
 
           <Divider label="3 · Backend → proxy" labelPosition="left" />
-          {exchange.backendStatusCode !== null && (
-            <Group gap="xs">
-              <Badge variant="light" color={statusColor(exchange.backendStatusCode)}>
-                {exchange.backendStatusCode}
-              </Badge>
-              <Text size="xs" c="dimmed">
-                as the backend answered, before any transformation
-              </Text>
-            </Group>
+          {exchange.backendError !== null ? (
+            <Alert color="orange" title="The backend never answered">
+              {exchange.backendError} The request above did go out, so what it contained is what to
+              check — along with whether the target URL is reachable from this host at all.
+            </Alert>
+          ) : (
+            <>
+              {exchange.backendStatusCode !== null && (
+                <Group gap="xs">
+                  <Badge variant="light" color={statusColor(exchange.backendStatusCode)}>
+                    {exchange.backendStatusCode}
+                  </Badge>
+                  <Text size="xs" c="dimmed">
+                    as the backend answered, before any transformation
+                  </Text>
+                </Group>
+              )}
+              <HeaderList headers={exchange.backendResponseHeaders ?? {}} />
+              <BodyBlock body={exchange.backendResponseBody} />
+            </>
           )}
-          <HeaderList headers={exchange.backendResponseHeaders ?? {}} />
-          <BodyBlock body={exchange.backendResponseBody} />
         </>
       ) : (
         <Alert color="gray" title="Never reached a backend">
-          The proxy answered this itself — a missing bearer token, a failed token exchange, or an
-          endpoint that could not be reached at all.
+          The proxy answered this itself, before any call went out — a missing bearer token, or a
+          failed token exchange.
           {exchange.targetUrl && ` Target would have been ${exchange.targetUrl}.`}
         </Alert>
       )}

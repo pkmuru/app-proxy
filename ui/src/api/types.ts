@@ -26,6 +26,22 @@ export interface ProxyConfig {
   endpoints: ProxyEndpoint[]
 }
 
+/** Result of a token request. Failures come back as 200 with ok: false — the detail is the point. */
+export interface TokenResult {
+  ok: boolean
+
+  accessToken: string | null
+  expiresOn: string | null
+  scopes: string[] | null
+  tokenSource: string | null
+
+  error: string | null
+  detail: string | null
+  correlationId: string | null
+  response: string | null
+  hint: string | null
+}
+
 export interface TrafficSummary {
   id: string
   timestamp: string
@@ -48,10 +64,12 @@ export interface CapturedExchange extends TrafficSummary {
   backendRequestHeaders: Record<string, string> | null
   backendRequestBody: string | null
 
-  // Backend -> proxy, untransformed: the raw event stream on an SSE route.
+  // Backend -> proxy, untransformed: the raw event stream on an SSE route. All null with a
+  // backendError set means the call went out and nothing came back.
   backendStatusCode: number | null
   backendResponseHeaders: Record<string, string> | null
   backendResponseBody: string | null
+  backendError: string | null
 
   // Proxy -> client, after any SSE aggregation
   responseHeaders: Record<string, string>

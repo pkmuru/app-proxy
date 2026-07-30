@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Security;
+using Azure.Core.Pipeline;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using OpenTelemetry;
 using OpenTelemetry.Context.Propagation;
@@ -58,6 +60,16 @@ builder.Services
         // exactly what backends must not be told. Scoped to this handler, so incoming requests are
         // still correlated normally in Application Insights.
         ActivityHeadersPropagator = DistributedContextPropagator.CreateNoOutputPropagator(),
+        SslOptions = AcceptAnyCertificate(),
+    });
+
+// MSAL builds its own HttpClient unless handed one, so it needs the same treatment or token
+// acquisition keeps failing while proxied calls succeed.
+builder.Services
+    .AddHttpClient(OboTokenService.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        SslOptions = AcceptAnyCertificate(),
     });
 
 // Optional: with no connection string the app runs with no Azure dependency at all.
@@ -66,7 +78,14 @@ if (!string.IsNullOrWhiteSpace(applicationInsights))
 {
     builder.Services
         .AddOpenTelemetry()
-        .UseAzureMonitor(options => options.ConnectionString = applicationInsights);
+        .UseAzureMonitor(options =>
+        {
+            options.ConnectionString = applicationInsights;
+
+            // The exporter has its own pipeline rather than an HttpClient from the factory.
+            options.Transport = new HttpClientTransport(
+                new HttpClient(new SocketsHttpHandler { SslOptions = AcceptAnyCertificate() }));
+        });
 
     // Azure Monitor's HttpClient instrumentation injects traceparent itself, which the handler's
     // own ActivityHeadersPropagator does not cover — so backends would still be told they are one
@@ -93,6 +112,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapAdminEndpoints();
+app.MapTokenEndpoints();
 app.MapEchoEndpoints();
 
 if (app.Environment.IsDevelopment())
@@ -116,3 +136,14 @@ app.MapFallback((IWebHostEnvironment environment) =>
 });
 
 app.Run();
+
+/// <summary>
+/// Accepts any server certificate on every outbound call — backends, Entra ID and telemetry alike.
+/// TLS-inspecting proxies re-sign each connection with a root this host does not trust, which
+/// otherwise fails with an "UntrustedRoot" inner exception. Connections stay encrypted; what is
+/// given up is the check that the other end is who it claims to be.
+/// </summary>
+static SslClientAuthenticationOptions AcceptAnyCertificate() => new()
+{
+    RemoteCertificateValidationCallback = (_, _, _, _) => true,
+};

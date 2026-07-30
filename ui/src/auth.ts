@@ -17,15 +17,25 @@ let msal: IPublicClientApplication | null = null
 // demand rather than bundled into the initial download. Kept here for the instanceof check below.
 let msalModule: typeof import('@azure/msal-browser') | null = null
 
+export interface AuthState {
+  account: AccountInfo | null
+  /** The last sign-in failure, kept so the header button and the Tokens tab agree on what went wrong. */
+  error: string | null
+}
+
 // Held here rather than read back from MSAL on every render: useSyncExternalStore needs a stable
 // reference, and MSAL rebuilds the account object each time it is asked for one.
-let account: AccountInfo | null = null
+let state: AuthState = { account: null, error: null }
 
 const listeners = new Set<() => void>()
 
-function setAccount(next: AccountInfo | null) {
-  account = next
+function update(next: Partial<AuthState>) {
+  state = { ...state, ...next }
   listeners.forEach((listener) => listener())
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -44,21 +54,28 @@ export async function initAuth(): Promise<ClientAuthConfig> {
 
   if (!config.enabled) return config
 
-  msalModule = await import('@azure/msal-browser')
-  msal = await msalModule.createStandardPublicClientApplication({
-    auth: {
-      clientId: config.clientId,
-      authority: config.authority,
-      redirectUri: window.location.origin,
-    },
-    // Session storage keeps the token out of other tabs and drops it when the browser closes.
-    cache: { cacheLocation: 'sessionStorage' },
-  })
+  try {
+    msalModule = await import('@azure/msal-browser')
+    msal = await msalModule.createStandardPublicClientApplication({
+      auth: {
+        clientId: config.clientId,
+        authority: config.authority,
+        redirectUri: window.location.origin,
+      },
+      // Session storage keeps the token out of other tabs and drops it when the browser closes.
+      cache: { cacheLocation: 'sessionStorage' },
+    })
 
-  const [existing] = msal.getAllAccounts()
-  if (existing) {
-    msal.setActiveAccount(existing)
-    setAccount(existing)
+    const [existing] = msal.getAllAccounts()
+    if (existing) {
+      msal.setActiveAccount(existing)
+      update({ account: existing })
+    }
+  } catch (error) {
+    // A tenant or client id that Entra ID will not recognise makes MSAL throw on the way up. That
+    // must not take the rest of the admin UI down with it — least of all the page that would
+    // explain the problem.
+    update({ error: `Sign-in could not start: ${describe(error)}` })
   }
 
   return config
@@ -68,33 +85,51 @@ export function authConfig(): ClientAuthConfig {
   return config
 }
 
-export function useAccount(): AccountInfo | null {
+export function useAuth(): AuthState {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    () => account,
+    () => state,
   )
 }
 
+/**
+ * Opens the Entra ID popup. Failures are recorded rather than thrown: the button that starts this
+ * sits in the header with nowhere to show a message, so both it and the Tokens tab read the state.
+ */
 export async function signIn(): Promise<void> {
-  if (!msal) return
+  if (!msal) {
+    update({ error: state.error ?? 'Sign-in is unavailable: MSAL did not start.' })
+    return
+  }
 
-  const result = await msal.loginPopup({ scopes: config.scopes })
-  msal.setActiveAccount(result.account)
-  setAccount(result.account)
+  update({ error: null })
+
+  try {
+    const result = await msal.loginPopup({ scopes: config.scopes })
+    msal.setActiveAccount(result.account)
+    update({ account: result.account })
+  } catch (error) {
+    update({ error: describe(error) })
+  }
 }
 
 export async function signOut(): Promise<void> {
   if (!msal) return
 
-  await msal.logoutPopup({ account: msal.getActiveAccount() ?? undefined })
-  setAccount(null)
+  try {
+    await msal.logoutPopup({ account: msal.getActiveAccount() ?? undefined })
+    update({ account: null, error: null })
+  } catch (error) {
+    update({ error: describe(error) })
+  }
 }
 
 /** Silent where possible, falling back to a popup when Entra ID wants to see the user again. */
 export async function accessToken(): Promise<string | null> {
+  const account = state.account
   if (!msal || !account) return null
 
   try {

@@ -5,8 +5,6 @@ import {
   Badge,
   Button,
   Code,
-  CopyButton,
-  Divider,
   Group,
   Paper,
   Select,
@@ -18,7 +16,7 @@ import {
   Title,
 } from '@mantine/core'
 import { api } from '../api/client'
-import { accessToken, authConfig, decodeJwt, signIn, signOut, useAccount } from '../auth'
+import { accessToken, authConfig, useAuth } from '../auth'
 import { statusColor } from '../format'
 import { BodyBlock, HeaderList } from '../components/Payload'
 
@@ -33,7 +31,7 @@ interface TestResult {
 
 export function TestPage() {
   const auth = authConfig()
-  const account = useAccount()
+  const { account } = useAuth()
   const { data: config } = useQuery({ queryKey: ['config'], queryFn: api.config })
 
   const [method, setMethod] = useState('GET')
@@ -91,8 +89,6 @@ export function TestPage() {
 
   return (
     <Stack>
-      <SignInCard />
-
       <Paper withBorder p="md">
         <Title order={5} mb="sm">
           Send a request
@@ -145,9 +141,10 @@ export function TestPage() {
             </Button>
           </Group>
 
-          {attachToken && !account && auth.enabled && (
+          {attachToken && !account && (
             <Text size="xs" c="dimmed">
-              Sign in above to attach a bearer token. Without one, endpoints using <Code>obo</Code> answer 401.
+              {auth.enabled ? 'Log in' : 'Configure sign-in'} to attach a bearer token — see the Tokens tab.
+              Without one, endpoints using <Code>obo</Code> answer 401.
             </Text>
           )}
         </Stack>
@@ -178,123 +175,5 @@ export function TestPage() {
         </Paper>
       )}
     </Stack>
-  )
-}
-
-function SignInCard() {
-  const auth = authConfig()
-  const account = useAccount()
-
-  const [token, setToken] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  if (!auth.enabled) {
-    return (
-      <Alert color="gray" title="Sign-in is not configured">
-        Set <Code>ClientAuth:TenantId</Code>, <Code>ClientAuth:ClientId</Code> and{' '}
-        <Code>ClientAuth:Scopes</Code> to sign in here and get a real access token for testing{' '}
-        <Code>obo</Code> endpoints. Requests below still work without one.
-      </Alert>
-    )
-  }
-
-  async function run(action: () => Promise<unknown>) {
-    setBusy(true)
-    setError(null)
-
-    try {
-      await action()
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : String(actionError))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const claims = token ? decodeJwt(token) : null
-
-  return (
-    <Paper withBorder p="md">
-      <Group justify="space-between">
-        <div>
-          <Title order={5}>{account ? account.name || account.username : 'Not signed in'}</Title>
-          <Text size="xs" c="dimmed">
-            Scopes: {auth.scopes.join(', ') || '(none configured)'}
-          </Text>
-        </div>
-
-        <Group gap="xs">
-          {account && (
-            <Button
-              variant="default"
-              size="xs"
-              loading={busy}
-              onClick={() => run(async () => setToken(await accessToken()))}
-            >
-              Show access token
-            </Button>
-          )}
-          <Button
-            size="xs"
-            variant={account ? 'default' : 'filled'}
-            loading={busy}
-            onClick={() =>
-              run(async () => {
-                if (account) {
-                  setToken(null)
-                  await signOut()
-                } else {
-                  await signIn()
-                }
-              })
-            }
-          >
-            {account ? 'Sign out' : 'Sign in'}
-          </Button>
-        </Group>
-      </Group>
-
-      {error && (
-        <Alert color="red" title="Sign-in failed" mt="sm">
-          {error}
-        </Alert>
-      )}
-
-      {token && (
-        <>
-          <Divider my="sm" label="Access token" labelPosition="left" />
-
-          <Group gap="xs" mb="xs">
-            <CopyButton value={token}>
-              {({ copied, copy }) => (
-                <Button size="xs" variant="default" onClick={copy}>
-                  {copied ? 'Copied' : 'Copy token'}
-                </Button>
-              )}
-            </CopyButton>
-            <Text size="xs" c="dimmed">
-              Paste into curl or Postman as <Code>Authorization: Bearer …</Code>
-            </Text>
-          </Group>
-
-          <Code block style={{ maxHeight: 120, overflow: 'auto', wordBreak: 'break-all' }}>
-            {token}
-          </Code>
-
-          {claims && (
-            <>
-              <Text size="xs" c="dimmed" mt="sm" mb={4}>
-                Claims — check <Code>aud</Code> matches this proxy's app registration, and{' '}
-                <Code>scp</Code> covers what the backend expects.
-              </Text>
-              <Code block style={{ maxHeight: 240, overflow: 'auto' }}>
-                {JSON.stringify(claims, null, 2)}
-              </Code>
-            </>
-          )}
-        </>
-      )}
-    </Paper>
   )
 }

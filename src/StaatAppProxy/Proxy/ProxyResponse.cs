@@ -59,10 +59,15 @@ public sealed record BackendTrace
     public required byte[] RequestBody { get; init; }
     public string? RequestContentType { get; init; }
 
-    public required int StatusCode { get; init; }
-    public required Dictionary<string, string[]> ResponseHeaders { get; init; }
+    // Absent when the backend never answered: unreachable, TLS refused, or timed out. The request
+    // half above is still recorded, since what was sent is exactly what has to be examined then.
+    public int? StatusCode { get; init; }
+    public Dictionary<string, string[]>? ResponseHeaders { get; init; }
 
     /// <summary>Untransformed: the raw event stream when the endpoint aggregates SSE.</summary>
-    public required byte[] ResponseBody { get; init; }
+    public byte[]? ResponseBody { get; init; }
     public string? ResponseContentType { get; init; }
+
+    /// <summary>Why no response came back, when none did.</summary>
+    public string? Error { get; init; }
 }

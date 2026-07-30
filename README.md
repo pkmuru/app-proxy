@@ -212,8 +212,8 @@ fail, and the UI says so.
 ### Signing in from the admin UI
 
 Testing an `obo` endpoint needs a real user token, which normally means fishing one out of another
-application. Instead the **Test** tab can sign you in and use the token directly. It is optional
-and off until configured:
+application. Instead the **Log in** button in the header signs you in and the **Tokens** tab uses
+the result directly. It is optional and off until configured:
 
 ```json
 "ClientAuth": {
@@ -223,19 +223,49 @@ and off until configured:
 }
 ```
 
-This is a second, separate app registration: a **SPA** (public client, no secret) whose redirect
-URI is this service's origin — `http://localhost:5000` and `http://localhost:5173` for local work.
-Give it delegated permission to the scope the proxy exposes, so the token it receives has the
-proxy as its audience — which is exactly what the On-Behalf-Of exchange requires.
-
-The Test tab then lets you sign in, see the token and its decoded claims (handy for checking `aud`
-and `scp` when an exchange is rejected), copy it for use in curl or Postman, and send requests
-through any configured route with the bearer token attached. Every request made this way shows up
-in the Traffic tab like any other.
+This needs an app registration with a **Single-page application** platform (public client, no
+secret) whose redirect URI is this service's origin — `http://localhost:5000` and
+`http://localhost:5173` for local work. A **Web** platform will not do: MSAL.js redeems the
+authorization code with a cross-origin `fetch`, which Entra ID only permits for SPA registrations,
+and refuses with `AADSTS9002326` otherwise. A SPA platform can be added alongside an existing Web
+one on the same registration. Give it delegated permission to the scope the proxy exposes, so the
+token it receives has the proxy as its audience — exactly what the On-Behalf-Of exchange requires.
 
 The settings are served from the API at `/admin/api/client-auth`, so Entra ID is configured in one
 place rather than baked into the UI at build time. MSAL itself is only downloaded when sign-in is
-configured.
+configured, and if it fails to start the rest of the UI still loads and says so.
+
+### The Tokens tab
+
+Four steps, top to bottom, matching the order things go wrong in:
+
+1. **Sign in** — or don't. Everything below works on a token pasted from curl, Postman or another
+   application.
+2. **The token** — decoded and checked. Expiry is shown as a badge, because an expired assertion is
+   the most common cause of an exchange that "suddenly stopped working". `aud`, `scp`, `tid` and
+   `appid` are surfaced first; the rest is one click away.
+3. **Exchange it for a backend token** — pick a configured endpoint and it asks for exactly the
+   scopes a real request through that route would, or name scopes directly to override. On success
+   you get the backend token, decoded the same way. On failure you get Entra ID's error code, its
+   correlation id, its raw response, and a plain-language note for the codes that come up often.
+4. **App-only token** (collapsed) — a token for the proxy's own identity via client credentials. It
+   cannot be used as an On-Behalf-Of assertion, but it does prove `AzureAd:ClientId` and
+   `ClientSecret` are right, which narrows down an exchange failure considerably.
+
+The same two exchanges are available without the UI:
+
+```bash
+curl -X POST localhost:5000/admin/api/tokens/obo \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"<user token>","endpoint":"orders"}'      # or "scopes": ["api://.../.default"]
+
+curl -X POST localhost:5000/admin/api/tokens/app \
+  -H 'Content-Type: application/json' \
+  -d '{"scopes":["api://.../.default"]}'
+```
+
+Both answer `200` with `"ok": false` when Entra ID refuses, rather than a 4xx. The refusal detail is
+the entire point of the endpoint, and most HTTP clients discard the body of an error response.
 
 ---
 
@@ -254,15 +284,20 @@ four sides, in order:
 
 The middle two are the point. Header trimming and SSE aggregation mean that what a client asked for
 and what a backend saw are deliberately different, and without both halves a mismatch is very hard
-to pin down. A request refused before it reached a backend — a missing bearer token, a failed token
-exchange — says so instead of showing empty sections.
+to pin down.
+
+A call that never gets an answer — connection refused, DNS failure, timeout — still records step 2,
+with the reason in place of step 3. What was sent is precisely what needs examining then. Only a
+request refused *before* anything went out, such as a missing bearer token or a failed token
+exchange, shows no backend sections at all, and says so.
 
 Bodies are cut at 64 KB and binary payloads are summarised rather than mangled. Nothing is written
 to disk, and a restart clears it.
 
-The UI has three tabs: **Endpoints** (the configuration in force, and where it was loaded from),
-**Traffic** (recent exchanges, auto-refreshing every 5 seconds; click a row for the detail) and
-**Test** (send a request through any route, optionally signed in — see above).
+The UI has four tabs: **Endpoints** (the configuration in force, and where it was loaded from),
+**Traffic** (recent exchanges, auto-refreshing every 5 seconds; click a row for the detail),
+**Test** (send a request through any route, with your bearer token attached) and **Tokens** (get
+one, read it, exchange it — see above).
 
 The same data is available directly:
 
@@ -316,11 +351,11 @@ src/StaatAppProxy/
           SseAggregator.cs         folds an event stream into JSON
           HopByHopHeaders.cs       which headers must not cross the proxy
   Auth/   OboTokenService.cs       the On-Behalf-Of exchange
-  Api/                             echo, admin, health, dev SSE samples
+  Api/                             echo, admin, tokens, health, dev SSE samples
   Diagnostics/                     the in-memory capture buffer
 ui/
   src/auth.ts                      optional MSAL sign-in, loaded only when configured
-  src/pages/                       Endpoints, Traffic and Test tabs
+  src/pages/                       Endpoints, Traffic, Test and Tokens tabs
 ```
 
 A request that matches a configured prefix is handled by `ProxyMiddleware` and never reaches

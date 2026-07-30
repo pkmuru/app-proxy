@@ -41,12 +41,19 @@ public sealed record CapturedExchange
 
     public string? BackendRequestBody { get; init; }
 
-    /// <summary>What the backend answered, untransformed — the raw event stream for SSE routes.</summary>
+    /// <summary>
+    /// What the backend answered, untransformed — the raw event stream for SSE routes. Null while
+    /// <see cref="BackendRequestHeaders"/> is set means the call went out but nothing came back;
+    /// <see cref="BackendError"/> says why.
+    /// </summary>
     public int? BackendStatusCode { get; init; }
 
     public IReadOnlyDictionary<string, string>? BackendResponseHeaders { get; init; }
 
     public string? BackendResponseBody { get; init; }
+
+    /// <summary>Why the backend never answered — unreachable, refused, timed out.</summary>
+    public string? BackendError { get; init; }
 
     /// <summary>Set when the proxy itself failed, e.g. the backend was unreachable.</summary>
     public string? Error { get; init; }

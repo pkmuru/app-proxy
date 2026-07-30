@@ -61,8 +61,16 @@ public sealed class Forwarder(
 
         var client = httpClientFactory.CreateClient(HttpClientName);
 
-        // Snapshot before sending: once the handler owns the message its content may be disposed.
-        var sentHeaders = Snapshot(request);
+        // Built before sending, for two reasons: once the handler owns the message its content may
+        // be disposed, and a request that never gets an answer still has to show what went out.
+        var sent = new BackendTrace
+        {
+            Method = request.Method.Method,
+            Url = targetUrl,
+            RequestHeaders = Snapshot(request),
+            RequestBody = requestBody,
+            RequestContentType = request.Content?.Headers.ContentType?.ToString(),
+        };
 
         try
         {
@@ -71,13 +79,8 @@ public sealed class Forwarder(
             var headers = CopyResponseHeaders(response);
             var backendBody = await response.Content.ReadAsByteArrayAsync(timeout.Token);
 
-            var trace = new BackendTrace
+            var trace = sent with
             {
-                Method = request.Method.Method,
-                Url = targetUrl,
-                RequestHeaders = sentHeaders,
-                RequestBody = requestBody,
-                RequestContentType = request.Content?.Headers.ContentType?.ToString(),
                 StatusCode = (int)response.StatusCode,
                 ResponseHeaders = headers,
                 ResponseBody = backendBody,
@@ -116,7 +119,10 @@ public sealed class Forwarder(
                 StatusCodes.Status504GatewayTimeout,
                 "Backend timed out",
                 $"'{endpoint.Name}' did not respond within {endpoint.TimeoutSeconds}s. Target: {targetUrl}",
-                targetUrl);
+                targetUrl) with
+            {
+                Backend = sent with { Error = $"No response within {endpoint.TimeoutSeconds}s." },
+            };
         }
         catch (HttpRequestException ex)
         {
@@ -126,7 +132,11 @@ public sealed class Forwarder(
                 StatusCodes.Status502BadGateway,
                 "Backend unreachable",
                 $"'{endpoint.Name}' could not be reached: {ex.Message} Target: {targetUrl}",
-                targetUrl);
+                targetUrl) with
+            {
+                // The inner exception names the actual cause — DNS, refused connection, bad certificate.
+                Backend = sent with { Error = (ex.InnerException ?? ex).Message },
+            };
         }
     }
 
@@ -260,7 +270,7 @@ public sealed class Forwarder(
                 try
                 {
                     var token = await oboTokens.AcquireAsync(assertion, endpoint.OboScopes, cancellationToken);
-                    outgoing.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+                    outgoing.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token.AccessToken);
                     return null;
                 }
                 catch (MsalException ex)

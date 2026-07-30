@@ -78,10 +78,13 @@ public sealed class ProxyMiddleware(
                 ? null
                 : BodyText.Format(result.Backend.RequestBody, result.Backend.RequestContentType),
             BackendStatusCode = result.Backend?.StatusCode,
-            BackendResponseHeaders = result.Backend is null ? null : HeaderMap.From(result.Backend.ResponseHeaders),
-            BackendResponseBody = result.Backend is null
-                ? null
-                : BodyText.Format(result.Backend.ResponseBody, result.Backend.ResponseContentType),
+            BackendResponseHeaders = result.Backend?.ResponseHeaders is { } backendHeaders
+                ? HeaderMap.From(backendHeaders)
+                : null,
+            BackendResponseBody = result.Backend?.ResponseBody is { } backendBody
+                ? BodyText.Format(backendBody, result.Backend.ResponseContentType)
+                : null,
+            BackendError = result.Backend?.Error,
             Error = result.Error,
         });
 
