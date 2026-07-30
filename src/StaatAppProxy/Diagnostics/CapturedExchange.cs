@@ -17,6 +17,12 @@ public sealed record CapturedExchange
     /// <summary>Name of the matched endpoint, "echo", or null when nothing matched.</summary>
     public string? EndpointName { get; init; }
 
+    /// <summary>
+    /// Who the caller's bearer token names, so the traffic list can say who a request came from
+    /// without carrying the token itself. Null when it names nobody readable.
+    /// </summary>
+    public string? Caller { get; init; }
+
     /// <summary>Absolute URL the request was forwarded to, if it was forwarded.</summary>
     public string? TargetUrl { get; init; }
 
@@ -66,6 +72,7 @@ public sealed record TrafficSummary(
     string Method,
     string Path,
     string? EndpointName,
+    string? Caller,
     int StatusCode,
     long DurationMs,
     string? Error)
@@ -76,6 +83,7 @@ public sealed record TrafficSummary(
         exchange.Method,
         exchange.Path,
         exchange.EndpointName,
+        exchange.Caller,
         exchange.StatusCode,
         exchange.DurationMs,
         exchange.Error);

@@ -48,6 +48,10 @@ export interface TrafficSummary {
   method: string
   path: string
   endpointName: string | null
+
+  /** Who the caller's bearer token names, or null when it names nobody readable. */
+  caller: string | null
+
   statusCode: number
   durationMs: number
   error: string | null

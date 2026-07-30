@@ -87,6 +87,7 @@ export function TrafficPage() {
                 <Table.Th w={90}>Method</Table.Th>
                 <Table.Th>Path</Table.Th>
                 <Table.Th w={160}>Endpoint</Table.Th>
+                <Table.Th w={170}>Caller</Table.Th>
                 <Table.Th w={90}>Status</Table.Th>
                 <Table.Th w={90}>Duration</Table.Th>
               </Table.Tr>
@@ -120,6 +121,17 @@ export function TrafficPage() {
                   <Table.Td>
                     <Text size="sm" c={row.endpointName ? undefined : 'dimmed'}>
                       {row.endpointName ?? '—'}
+                    </Text>
+                  </Table.Td>
+
+                  <Table.Td>
+                    <Text
+                      size="sm"
+                      truncate
+                      title={row.caller ?? undefined}
+                      c={row.caller ? undefined : 'dimmed'}
+                    >
+                      {row.caller ?? '—'}
                     </Text>
                   </Table.Td>
 
@@ -187,7 +199,7 @@ function ExchangeDetail({ exchange }: { exchange: CapturedExchange }) {
       )}
 
       <Divider label="1 · Client → proxy" labelPosition="left" />
-      <HeaderList headers={exchange.requestHeaders} />
+      <HeaderList headers={exchange.requestHeaders} tokenLabel="From the caller" />
       <BodyBlock body={exchange.requestBody} />
 
       {reachedBackend ? (
@@ -198,7 +210,7 @@ function ExchangeDetail({ exchange }: { exchange: CapturedExchange }) {
               {exchange.method} {exchange.targetUrl}
             </Code>
           )}
-          <HeaderList headers={exchange.backendRequestHeaders ?? {}} />
+          <HeaderList headers={exchange.backendRequestHeaders ?? {}} tokenLabel="Sent to the backend" />
           <BodyBlock body={exchange.backendRequestBody} />
 
           <Divider label="3 · Backend → proxy" labelPosition="left" />

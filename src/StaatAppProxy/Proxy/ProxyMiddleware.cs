@@ -66,6 +66,7 @@ public sealed class ProxyMiddleware(
             Method = context.Request.Method,
             Path = context.Request.Path + context.Request.QueryString,
             EndpointName = endpoint.Name,
+            Caller = TokenPeek.Caller(context.Request.Headers.Authorization),
             TargetUrl = result.TargetUrl,
             StatusCode = result.StatusCode,
             DurationMs = stopwatch.ElapsedMilliseconds,

@@ -158,8 +158,13 @@ export async function accessToken(): Promise<string | null> {
 /** Decodes the payload for display. The signature is not checked — this is a diagnostics view. */
 export function decodeJwt(token: string): Record<string, unknown> | null {
   try {
-    const payload = token.split('.')[1]
-    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+
+    // atob gives one byte per character, but claims are UTF-8 — read as Latin-1 a name with an
+    // accent in it comes out mangled, and would disagree with the Caller column the server sends.
+    const bytes = Uint8Array.from(atob(payload), (character) => character.charCodeAt(0))
+
+    return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
   } catch {
     return null
   }

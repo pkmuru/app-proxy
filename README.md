@@ -286,6 +286,17 @@ The middle two are the point. Header trimming and SSE aggregation mean that what
 and what a backend saw are deliberately different, and without both halves a mismatch is very hard
 to pin down.
 
+An `Authorization: Bearer <jwt>` header is decoded where it appears, rather than shown as a blob:
+who the token is for, the scopes or roles it carries, the tenant, the client that asked for it and
+how long it has left. The list itself carries a **Caller** column, so who sent what is legible
+without opening every row. On an `obo` route steps 1 and 2 hold *different* tokens — the caller's
+assertion and the one minted for the backend — and reading them side by side is the fastest way to
+confirm an exchange did what it should have.
+
+Decoding is a display convenience and nothing more: the signature is never checked, the header is
+captured and served exactly as it arrived, and the raw string is one click away under **Show raw
+token**. Tokens that are deliberately opaque, such as Entra ID's for Microsoft Graph, simply say so.
+
 A call that never gets an answer — connection refused, DNS failure, timeout — still records step 2,
 with the reason in place of step 3. What was sent is precisely what needs examining then. Only a
 request refused *before* anything went out, such as a missing bearer token or a failed token

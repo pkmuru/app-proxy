@@ -56,6 +56,7 @@ public static class EchoEndpoints
             Method = payload.Method,
             Path = payload.Path + payload.QueryString,
             EndpointName = "echo",
+            Caller = TokenPeek.Caller(context.Request.Headers.Authorization),
             StatusCode = StatusCodes.Status200OK,
             DurationMs = stopwatch.ElapsedMilliseconds,
             RequestHeaders = payload.Headers,

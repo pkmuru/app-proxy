@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Identity.Client;
 using StaatAppProxy.Auth;
 using StaatAppProxy.Config;
+using StaatAppProxy.Diagnostics;
 
 namespace StaatAppProxy.Proxy;
 
@@ -257,7 +258,7 @@ public sealed class Forwarder(
                 return null;
 
             case AuthModes.Obo:
-                var assertion = BearerToken(authorization);
+                var assertion = TokenPeek.Bearer(authorization);
                 if (assertion is null)
                 {
                     return ProxyResponse.Problem(
@@ -293,18 +294,5 @@ public sealed class Forwarder(
             default:
                 return null;
         }
-    }
-
-    private static string? BearerToken(string? header)
-    {
-        const string prefix = "Bearer ";
-
-        if (header is null || !header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var token = header[prefix.Length..].Trim();
-        return token.Length == 0 ? null : token;
     }
 }
