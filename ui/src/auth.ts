@@ -39,25 +39,6 @@ function describe(error: unknown): string {
 }
 
 /**
- * True when this window is one MSAL opened to catch Entra ID's answer — the sign-in popup, or a
- * hidden iframe renewing a token — rather than the admin UI itself.
- *
- * The redirect URI is this service's own origin, so those windows load the whole admin UI. Booting
- * a second copy of the app there is wasted work at best, and at worst it consumes the response
- * before the window that started the sign-in can read it: the popup opens, shows the app with
- * `#code=…` in its address bar, and never closes. Detecting it here means the response is left
- * exactly where MSAL expects to find it, without needing a second redirect URI registered.
- */
-export function isAuthResponseWindow(): boolean {
-  const opened = Boolean(window.opener) && window.opener !== window
-  const framed = window.self !== window.top
-
-  if (!opened && !framed) return false
-
-  return /[#?&](code|error|state|id_token)=/.test(window.location.hash + window.location.search)
-}
-
-/**
  * Reads the Entra ID settings the API serves and, when they are present, brings MSAL up.
  *
  * Signing in is entirely optional — the proxy's own APIs are unauthenticated. It exists so a
@@ -85,8 +66,9 @@ export async function initAuth(): Promise<ClientAuthConfig> {
       cache: { cacheLocation: 'sessionStorage' },
     })
 
-    // Completes a sign-in that came back as a full-page redirect instead of a popup — which is what
-    // happens when the browser blocks the popup. Resolves to null when there is nothing to finish.
+    // Completes a sign-in coming back from Entra ID. Resolves to null when there is nothing to
+    // finish, which is every ordinary page load. MSAL takes the response back out of the address
+    // bar itself, and restores the tab the sign-in started from.
     const redirected = await msal.handleRedirectPromise()
     if (redirected) {
       msal.setActiveAccount(redirected.account)
@@ -122,8 +104,9 @@ export function useAuth(): AuthState {
 }
 
 /**
- * Opens the Entra ID popup. Failures are recorded rather than thrown: the button that starts this
- * sits in the header with nowhere to show a message, so both it and the Tokens tab read the state.
+ * Hands the whole page over to Entra ID. Nothing after this runs unless the redirect fails to
+ * start, and failures are recorded rather than thrown: the button that starts this sits in the
+ * header with nowhere to show a message, so both it and the Tokens tab read the state.
  */
 export async function signIn(): Promise<void> {
   if (!msal) {
@@ -134,9 +117,7 @@ export async function signIn(): Promise<void> {
   update({ error: null })
 
   try {
-    const result = await msal.loginPopup({ scopes: config.scopes })
-    msal.setActiveAccount(result.account)
-    update({ account: result.account })
+    await msal.loginRedirect({ scopes: config.scopes })
   } catch (error) {
     update({ error: describe(error) })
   }
@@ -146,14 +127,15 @@ export async function signOut(): Promise<void> {
   if (!msal) return
 
   try {
-    await msal.logoutPopup({ account: msal.getActiveAccount() ?? undefined })
-    update({ account: null, error: null })
+    // Also a full-page redirect, so there is no state to clear here: the app comes back up with an
+    // empty cache and no active account.
+    await msal.logoutRedirect({ account: msal.getActiveAccount() ?? undefined })
   } catch (error) {
     update({ error: describe(error) })
   }
 }
 
-/** Silent where possible, falling back to a popup when Entra ID wants to see the user again. */
+/** Silent where possible, handing the page over when Entra ID wants to see the user again. */
 export async function accessToken(): Promise<string | null> {
   const account = state.account
   if (!msal || !account) return null
@@ -163,8 +145,10 @@ export async function accessToken(): Promise<string | null> {
     return result.accessToken
   } catch (error) {
     if (msalModule && error instanceof msalModule.InteractionRequiredAuthError) {
-      const result = await msal.acquireTokenPopup({ scopes: config.scopes, account })
-      return result.accessToken
+      // Leaves the page, so the caller gets nothing back — there is nothing left to give it. The
+      // token is in the cache by the time the app comes back up, on the tab it left from.
+      await msal.acquireTokenRedirect({ scopes: config.scopes, account })
+      return null
     }
 
     throw error
