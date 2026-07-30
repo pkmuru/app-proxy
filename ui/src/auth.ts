@@ -39,6 +39,25 @@ function describe(error: unknown): string {
 }
 
 /**
+ * True when this window is one MSAL opened to catch Entra ID's answer — the sign-in popup, or a
+ * hidden iframe renewing a token — rather than the admin UI itself.
+ *
+ * The redirect URI is this service's own origin, so those windows load the whole admin UI. Booting
+ * a second copy of the app there is wasted work at best, and at worst it consumes the response
+ * before the window that started the sign-in can read it: the popup opens, shows the app with
+ * `#code=…` in its address bar, and never closes. Detecting it here means the response is left
+ * exactly where MSAL expects to find it, without needing a second redirect URI registered.
+ */
+export function isAuthResponseWindow(): boolean {
+  const opened = Boolean(window.opener) && window.opener !== window
+  const framed = window.self !== window.top
+
+  if (!opened && !framed) return false
+
+  return /[#?&](code|error|state|id_token)=/.test(window.location.hash + window.location.search)
+}
+
+/**
  * Reads the Entra ID settings the API serves and, when they are present, brings MSAL up.
  *
  * Signing in is entirely optional — the proxy's own APIs are unauthenticated. It exists so a
@@ -65,6 +84,13 @@ export async function initAuth(): Promise<ClientAuthConfig> {
       // Session storage keeps the token out of other tabs and drops it when the browser closes.
       cache: { cacheLocation: 'sessionStorage' },
     })
+
+    // Completes a sign-in that came back as a full-page redirect instead of a popup — which is what
+    // happens when the browser blocks the popup. Resolves to null when there is nothing to finish.
+    const redirected = await msal.handleRedirectPromise()
+    if (redirected) {
+      msal.setActiveAccount(redirected.account)
+    }
 
     const [existing] = msal.getAllAccounts()
     if (existing) {
