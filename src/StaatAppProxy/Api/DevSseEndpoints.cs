@@ -36,6 +36,29 @@ public static class DevSseEndpoints
             // No "value", so concat mode contributes nothing from it.
             await WriteEventAsync(context, "done", """{"finished":true}""");
         });
+
+        // Events that say what they are — the shape "typed" mode is built for. Progress events
+        // surround the answer, and the suggestions arrive together at the end.
+        app.MapGet("/dev/sse-typed", async (HttpContext context) =>
+        {
+            StartEventStream(context);
+
+            await WriteEventAsync(context, "message", """{"key":"answer","type":"start","value":null}""");
+            await WriteEventAsync(context, "message", """{"key":"answer","type":"status","value":"thinking"}""");
+
+            foreach (var token in new[] { "Hello", ", ", "typed", " ", "world", "!" })
+            {
+                await WriteEventAsync(
+                    context, "message", $$"""{"key":"answer","type":"streaming","value":"{{token}}"}""");
+
+                await Task.Delay(100, context.RequestAborted);
+            }
+
+            await WriteEventAsync(
+                context, "message", """{"key":"suggest","type":"followup","value":["Tell me more","Why?"]}""");
+
+            await WriteEventAsync(context, "message", """{"key":"answer","type":"end","value":null}""");
+        });
     }
 
     private static void StartEventStream(HttpContext context)

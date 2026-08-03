@@ -18,7 +18,7 @@ public sealed record ProxyEndpoint
     /// <summary>"rest" passes the backend response through; "sse" aggregates an event stream into JSON.</summary>
     public string Mode { get; init; } = ProxyModes.Rest;
 
-    /// <summary>How SSE events are combined: "array" or "concat". Ignored unless <see cref="Mode"/> is "sse".</summary>
+    /// <summary>How SSE events are combined: "array", "concat" or "typed". Ignored unless <see cref="Mode"/> is "sse".</summary>
     public string SseMode { get; init; } = SseModes.Array;
 
     /// <summary>
@@ -69,7 +69,10 @@ public static class SseModes
     /// <summary>All data payloads are joined into one value, for backends that stream chunks of a single result.</summary>
     public const string Concat = "concat";
 
-    public static readonly string[] All = [Array, Concat];
+    /// <summary>Only the "streaming" and "followup" events of a stream whose events name their own kind.</summary>
+    public const string Typed = "typed";
+
+    public static readonly string[] All = [Array, Concat, Typed];
 }
 
 public static class AuthModes

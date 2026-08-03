@@ -78,7 +78,7 @@ configuration stays in force. YAML works too: point `EndpointConfig:Path` at a `
 | `routePrefix`    | required  | Incoming path prefix that selects this endpoint                              |
 | `backendBaseUrl` | required  | Absolute `http`/`https` base URL of the backend                              |
 | `mode`           | `rest`    | `rest` passes the response through, `sse` aggregates an event stream         |
-| `sseMode`        | `array`   | `array` or `concat` — see below. Only read when `mode` is `sse`              |
+| `sseMode`        | `array`   | `array`, `concat` or `typed` — see below. Only read when `mode` is `sse`     |
 | `sseConcatField` | `value`   | Property taken from each event in `concat` mode. `""` joins whole payloads   |
 | `auth`           | `none`    | `none`, `passthrough` or `obo`                                               |
 | `oboScopes`      | `[]`      | Scopes for the On-Behalf-Of exchange. Required when `auth` is `obo`          |
@@ -95,7 +95,7 @@ prefixes match, the longest one wins, so `/api/orders/archive` can go somewhere 
 
 ### SSE aggregation
 
-Both modes read the stream to completion and return one JSON body with `Content-Type:
+All three modes read the stream to completion and return one JSON body with `Content-Type:
 application/json`.
 
 `"sseMode": "array"` — one entry per event. Use this when each event is a separate result:
@@ -135,10 +135,34 @@ property with `sseConcatField`, or set it to `""` to join whole payloads as they
 If no event carries the named property the raw payloads are joined instead, so a field name that
 does not match shows you the stream rather than an empty result.
 
+`"sseMode": "typed"` — for backends whose events say what they are. Use this when the stream carries
+progress alongside the answer. Given
+
+```
+data: {"key":"answer","type":"start","value":null}
+data: {"key":"answer","type":"status","value":"thinking"}
+data: {"key":"answer","type":"streaming","value":"Hello"}
+data: {"key":"answer","type":"streaming","value":" world"}
+data: {"key":"suggest","type":"followup","value":["Tell me more","Why?"]}
+data: {"key":"answer","type":"end","value":null}
+```
+
+it returns
+
+```json
+{ "result": "Hello world", "followup": ["Tell me more", "Why?"] }
+```
+
+Only `streaming` and `followup` contribute. `start`, `status` and `end` are dropped — under `concat`
+they would land in the middle of the answer, which is the reason this mode exists. A `followup`
+value is normally an array and its items are collected into one flat list; a lone value counts as a
+list of one. Both properties are always present, so no follow-ups gives `[]` rather than nothing at
+all. `key` is not used, and neither is `sseConcatField` — the property names are fixed.
+
 In `array` mode each event's `data` is parsed as JSON when it is valid JSON and kept as a string
 otherwise, so a sentinel like `[DONE]` survives intact. In `concat` mode, if the joined result is
 itself valid JSON it is returned directly rather than wrapped in `result` — which is what makes
-streamed-JSON backends work.
+streamed-JSON backends work. `typed` mode always returns the shape above.
 
 If the backend answers an SSE endpoint with an error status, that response is relayed untouched
 rather than aggregated.

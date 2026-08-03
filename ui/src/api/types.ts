@@ -1,7 +1,7 @@
 // Mirrors the C# records in src/StaatAppProxy. ASP.NET serialises them as camelCase.
 
 export type ProxyMode = 'rest' | 'sse'
-export type SseMode = 'array' | 'concat'
+export type SseMode = 'array' | 'concat' | 'typed'
 export type AuthMode = 'none' | 'passthrough' | 'obo'
 
 export interface ProxyEndpoint {

@@ -19,7 +19,13 @@ public static class SseAggregator
     public static string Aggregate(string stream, string sseMode, string concatField)
     {
         var events = ReadEvents(stream);
-        return sseMode == SseModes.Concat ? Concatenated(events, concatField) : AsArray(events);
+
+        return sseMode switch
+        {
+            SseModes.Concat => Concatenated(events, concatField),
+            SseModes.Typed => Typed(events),
+            _ => AsArray(events),
+        };
     }
 
     private static List<SseEvent> ReadEvents(string stream)
@@ -135,16 +141,68 @@ public static class SseAggregator
             return data;
         }
 
-        if (TryParseJson(data) is not JsonObject json ||
-            !json.TryGetPropertyValue(field, out var value) ||
-            value is null)
+        return TryParseJson(data) is JsonObject json && json.TryGetPropertyValue(field, out var value)
+            ? Text(value)
+            : "";
+    }
+
+    /// <summary>
+    /// Events that name their own kind: <c>{"key":…, "type":"streaming", "value":…}</c>. Only
+    /// "streaming" and "followup" carry an answer — "start", "status" and "end" report progress a
+    /// caller waiting for the whole result never sees, so they contribute nothing.
+    /// </summary>
+    /// <remarks>
+    /// Both properties are always present, so a client never has to work out which events arrived.
+    /// There is no fallback when nothing matches, unlike concat mode: an empty result is the honest
+    /// answer, and the traffic view still shows the stream it came from.
+    /// </remarks>
+    private static string Typed(List<SseEvent> events)
+    {
+        var result = new StringBuilder();
+        var followup = new JsonArray();
+
+        foreach (var sseEvent in events)
         {
-            return "";
+            if (TryParseJson(sseEvent.Data) is not JsonObject json)
+            {
+                continue;
+            }
+
+            var value = json["value"];
+
+            switch (Text(json["type"]))
+            {
+                case "streaming":
+                    result.Append(Text(value));
+                    break;
+
+                case "followup":
+                    // Normally a list of suggestions; a lone value counts as a list of one. Cloned
+                    // because a node cannot belong to two documents at once.
+                    if (value is JsonArray list)
+                    {
+                        foreach (var item in list)
+                        {
+                            followup.Add(item?.DeepClone());
+                        }
+                    }
+                    else if (value is not null)
+                    {
+                        followup.Add(value.DeepClone());
+                    }
+
+                    break;
+            }
         }
 
-        // A string contributes its text; anything else its JSON, so nothing is quietly lost.
-        return value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>() : value.ToJsonString();
+        return new JsonObject { ["result"] = result.ToString(), ["followup"] = followup }.ToJsonString();
     }
+
+    /// <summary>A value as text: a string gives its text, anything else its JSON, so nothing is quietly lost.</summary>
+    private static string Text(JsonNode? value) =>
+        value is null ? ""
+            : value.GetValueKind() == JsonValueKind.String ? value.GetValue<string>()
+            : value.ToJsonString();
 
     private static JsonNode? TryParseJson(string value)
     {
