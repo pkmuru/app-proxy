@@ -179,7 +179,7 @@ public static class SseAggregator
                 case "followup":
                     // Normally a list of suggestions; a lone value counts as a list of one. Cloned
                     // because a node cannot belong to two documents at once.
-                    if (value is JsonArray list)
+                    if (Unpacked(value) is JsonArray list)
                     {
                         foreach (var item in list)
                         {
@@ -197,6 +197,18 @@ public static class SseAggregator
 
         return new JsonObject { ["result"] = result.ToString(), ["followup"] = followup }.ToJsonString();
     }
+
+    /// <summary>
+    /// A list that arrived as a string holding its JSON — <c>"[\"a\",\"b\"]"</c> instead of
+    /// <c>["a","b"]</c> — read back as a list, since a backend encoding it twice still means a list.
+    /// Anything else is left exactly as it came, so a suggestion that merely looks like JSON survives.
+    /// </summary>
+    private static JsonNode? Unpacked(JsonNode? value) =>
+        value is not null
+        && value.GetValueKind() == JsonValueKind.String
+        && TryParseJson(value.GetValue<string>()) is JsonArray list
+            ? list
+            : value;
 
     /// <summary>A value as text: a string gives its text, anything else its JSON, so nothing is quietly lost.</summary>
     private static string Text(JsonNode? value) =>

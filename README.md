@@ -155,7 +155,9 @@ it returns
 
 Only `streaming` and `followup` contribute. `start`, `status` and `end` are dropped — under `concat`
 they would land in the middle of the answer, which is the reason this mode exists. A `followup`
-value is normally an array and its items are collected into one flat list; a lone value counts as a
+value is normally an array and its items are collected into one flat list. Some backends send that
+array JSON-encoded into a string instead — `"value": "[\"Tell me more\",\"Why?\"]"` — which is
+unpacked to the same flat list rather than kept as one long suggestion; a lone value counts as a
 list of one. Both properties are always present, so no follow-ups gives `[]` rather than nothing at
 all. `key` is not used, and neither is `sseConcatField` — the property names are fixed.
 
