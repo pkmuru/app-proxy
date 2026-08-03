@@ -22,11 +22,18 @@ public sealed record ProxyResponse(
     /// </summary>
     public BackendTrace? Backend { get; init; }
 
+    /// <summary>
+    /// The exception behind <see cref="Error"/> as text. Carried so the traffic view can show what
+    /// actually failed — the message alone omits the cause, which sits in an inner exception.
+    /// </summary>
+    public string? Exception { get; init; }
+
     public string? ContentType =>
         Headers.TryGetValue("Content-Type", out var values) ? values.FirstOrDefault() : null;
 
     /// <summary>An RFC 7807 error the proxy produced itself, rather than something a backend said.</summary>
-    public static ProxyResponse Problem(int status, string title, string detail, string? targetUrl = null)
+    public static ProxyResponse Problem(
+        int status, string title, string detail, string? targetUrl = null, Exception? exception = null)
     {
         var body = JsonSerializer.SerializeToUtf8Bytes(
             new ProblemDetails { Status = status, Title = title, Detail = detail },
@@ -37,7 +44,10 @@ public sealed record ProxyResponse(
             ["Content-Type"] = ["application/problem+json; charset=utf-8"],
         };
 
-        return new ProxyResponse(status, headers, body, targetUrl, $"{title}: {detail}");
+        return new ProxyResponse(status, headers, body, targetUrl, $"{title}: {detail}")
+        {
+            Exception = exception?.ToString(),
+        };
     }
 }
 

@@ -17,7 +17,7 @@ import {
 } from '@mantine/core'
 import { api } from '../api/client'
 import { accessToken, authConfig, useAuth } from '../auth'
-import { statusColor } from '../format'
+import { header, statusColor } from '../format'
 import { BodyBlock, HeaderList } from '../components/Payload'
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -170,7 +170,7 @@ export function TestPage() {
 
           <Stack gap="sm">
             <HeaderList headers={result.headers} />
-            <BodyBlock body={result.body} />
+            <BodyBlock body={result.body} contentType={header(result.headers, 'content-type')} />
           </Stack>
         </Paper>
       )}

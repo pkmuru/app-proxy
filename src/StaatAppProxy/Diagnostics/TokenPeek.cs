@@ -66,9 +66,15 @@ public static class TokenPeek
                 }
             }
         }
-        catch (Exception ex) when (ex is FormatException or JsonException)
+        catch (Exception)
         {
             // Anything unreadable is simply not a caller we can name.
+            //
+            // Deliberately unfiltered. This runs on the request path with no job but to label a
+            // row, so no token — however malformed — may turn into a failed request. Naming the
+            // types instead is what broke: JsonDocument defers UTF-8 validation to GetString, so
+            // a claim holding invalid UTF-8 throws InvalidOperationException rather than the
+            // JsonException the parse leads you to expect.
         }
 
         return null;

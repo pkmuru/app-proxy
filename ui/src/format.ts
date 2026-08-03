@@ -29,13 +29,22 @@ export function formatTime(iso: string): string {
   return `${time}.${String(at.getMilliseconds()).padStart(3, '0')}`
 }
 
-/** Bodies are captured as raw strings; JSON is far easier to read indented. */
-export function prettyBody(body: string | null): string {
-  if (!body) return ''
+/**
+ * A body indented for reading, or null when it is not JSON — which is also how we know a body sent
+ * as `application/json` is not one. Both questions come from the single parse.
+ */
+export function formatJson(body: string | null): string | null {
+  if (!body) return null
 
   try {
     return JSON.stringify(JSON.parse(body), null, 2)
   } catch {
-    return body
+    return null
   }
+}
+
+/** Header lookup that ignores case, as HTTP does and a plain object does not. */
+export function header(headers: Record<string, string>, name: string): string | undefined {
+  const wanted = name.toLowerCase()
+  return Object.entries(headers).find(([key]) => key.toLowerCase() === wanted)?.[1]
 }

@@ -45,7 +45,8 @@ public sealed class ProxyMiddleware(
             log.LogError(ex, "Unhandled error proxying {Method} {Path} to '{Endpoint}'",
                 context.Request.Method, context.Request.Path, endpoint.Name);
 
-            result = ProxyResponse.Problem(StatusCodes.Status500InternalServerError, "Proxy error", ex.Message);
+            result = ProxyResponse.Problem(
+                StatusCodes.Status500InternalServerError, "Proxy error", ex.Message, exception: ex);
         }
 
         stopwatch.Stop();
@@ -59,35 +60,65 @@ public sealed class ProxyMiddleware(
             log.LogDebug("Client aborted before the response to {Path} could be written", context.Request.Path);
         }
 
-        traffic.Add(new CapturedExchange
+        // Built only once the response has gone out, so nothing in here may throw: the client
+        // already holds its body, and an exception at this point truncates that response mid-flight
+        // and drops the row — a failure that is invisible from both ends.
+        try
         {
-            Id = Guid.NewGuid(),
-            Timestamp = DateTimeOffset.UtcNow,
-            Method = context.Request.Method,
-            Path = context.Request.Path + context.Request.QueryString,
-            EndpointName = endpoint.Name,
-            Caller = TokenPeek.Caller(context.Request.Headers.Authorization),
-            TargetUrl = result.TargetUrl,
-            StatusCode = result.StatusCode,
-            DurationMs = stopwatch.ElapsedMilliseconds,
-            RequestHeaders = HeaderMap.From(context.Request.Headers),
-            RequestBody = BodyText.Format(requestBody, context.Request.ContentType),
-            ResponseHeaders = HeaderMap.From(result.Headers),
-            ResponseBody = BodyText.Format(result.Body, result.ContentType),
-            BackendRequestHeaders = result.Backend is null ? null : HeaderMap.From(result.Backend.RequestHeaders),
-            BackendRequestBody = result.Backend is null
-                ? null
-                : BodyText.Format(result.Backend.RequestBody, result.Backend.RequestContentType),
-            BackendStatusCode = result.Backend?.StatusCode,
-            BackendResponseHeaders = result.Backend?.ResponseHeaders is { } backendHeaders
-                ? HeaderMap.From(backendHeaders)
-                : null,
-            BackendResponseBody = result.Backend?.ResponseBody is { } backendBody
-                ? BodyText.Format(backendBody, result.Backend.ResponseContentType)
-                : null,
-            BackendError = result.Backend?.Error,
-            Error = result.Error,
-        });
+            traffic.Add(new CapturedExchange
+            {
+                Id = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow,
+                Method = context.Request.Method,
+                Path = context.Request.Path + context.Request.QueryString,
+                EndpointName = endpoint.Name,
+                Caller = TokenPeek.Caller(context.Request.Headers.Authorization),
+                TargetUrl = result.TargetUrl,
+                StatusCode = result.StatusCode,
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                RequestHeaders = HeaderMap.From(context.Request.Headers),
+                RequestBody = BodyText.Format(requestBody, context.Request.ContentType),
+                ResponseHeaders = HeaderMap.From(result.Headers),
+                ResponseBody = BodyText.Format(result.Body, result.ContentType),
+                BackendRequestHeaders = result.Backend is null ? null : HeaderMap.From(result.Backend.RequestHeaders),
+                BackendRequestBody = result.Backend is null
+                    ? null
+                    : BodyText.Format(result.Backend.RequestBody, result.Backend.RequestContentType),
+                BackendStatusCode = result.Backend?.StatusCode,
+                BackendResponseHeaders = result.Backend?.ResponseHeaders is { } backendHeaders
+                    ? HeaderMap.From(backendHeaders)
+                    : null,
+                BackendResponseBody = result.Backend?.ResponseBody is { } backendBody
+                    ? BodyText.Format(backendBody, result.Backend.ResponseContentType)
+                    : null,
+                BackendError = result.Backend?.Error,
+                Error = result.Error,
+                Exception = result.Exception,
+            });
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "Could not record {Method} {Path} in the traffic view",
+                context.Request.Method, context.Request.Path);
+
+            // The exchange itself happened and the client was served; only the record of it failed.
+            // A row saying so beats the request disappearing from the view with the reason left
+            // behind in the console.
+            traffic.Add(new CapturedExchange
+            {
+                Id = Guid.NewGuid(),
+                Timestamp = DateTimeOffset.UtcNow,
+                Method = context.Request.Method,
+                Path = context.Request.Path + context.Request.QueryString,
+                EndpointName = endpoint.Name,
+                StatusCode = result.StatusCode,
+                DurationMs = stopwatch.ElapsedMilliseconds,
+                RequestHeaders = new Dictionary<string, string>(),
+                ResponseHeaders = new Dictionary<string, string>(),
+                Error = "This exchange completed, but the proxy could not record it in full.",
+                Exception = ex.ToString(),
+            });
+        }
 
         log.LogInformation("{Method} {Path} -> '{Endpoint}' {Status} in {Duration}ms",
             context.Request.Method, context.Request.Path, endpoint.Name, result.StatusCode, stopwatch.ElapsedMilliseconds);

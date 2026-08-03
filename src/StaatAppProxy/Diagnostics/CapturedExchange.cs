@@ -63,6 +63,12 @@ public sealed record CapturedExchange
 
     /// <summary>Set when the proxy itself failed, e.g. the backend was unreachable.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// The exception behind <see cref="Error"/> as text: type, message, inner exceptions and their
+    /// stack traces. Kept off <see cref="TrafficSummary"/> so it never rides along with the poll.
+    /// </summary>
+    public string? Exception { get; init; }
 }
 
 /// <summary>Row shape for the traffic list, so the list response stays small.</summary>

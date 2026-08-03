@@ -133,7 +133,8 @@ public sealed class Forwarder(
                 StatusCodes.Status502BadGateway,
                 "Backend unreachable",
                 $"'{endpoint.Name}' could not be reached: {ex.Message} Target: {targetUrl}",
-                targetUrl) with
+                targetUrl,
+                ex) with
             {
                 // The inner exception names the actual cause — DNS, refused connection, bad certificate.
                 Backend = sent with { Error = (ex.InnerException ?? ex).Message },
@@ -281,14 +282,16 @@ public sealed class Forwarder(
                     return ProxyResponse.Problem(
                         StatusCodes.Status502BadGateway,
                         "On-Behalf-Of exchange failed",
-                        $"{ex.ErrorCode}: {ex.Message}");
+                        $"{ex.ErrorCode}: {ex.Message}",
+                        exception: ex);
                 }
                 catch (InvalidOperationException ex)
                 {
                     return ProxyResponse.Problem(
                         StatusCodes.Status502BadGateway,
                         "On-Behalf-Of not configured",
-                        ex.Message);
+                        ex.Message,
+                        exception: ex);
                 }
 
             default:

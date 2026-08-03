@@ -297,10 +297,21 @@ Decoding is a display convenience and nothing more: the signature is never check
 captured and served exactly as it arrived, and the raw string is one click away under **Show raw
 token**. Tokens that are deliberately opaque, such as Entra ID's for Microsoft Graph, simply say so.
 
+When the proxy itself fails, the row carries the exception behind the message: its type, and the
+full stack trace under **Show stack trace**, inner exceptions included — which is usually where the
+cause actually is. The trace stays on the detail, never on the list, so polling it costs nothing.
+
 A call that never gets an answer — connection refused, DNS failure, timeout — still records step 2,
 with the reason in place of step 3. What was sent is precisely what needs examining then. Only a
 request refused *before* anything went out, such as a missing bearer token or a failed token
 exchange, shows no backend sections at all, and says so.
+
+Bodies are shown exactly as they went over the wire, down to the whitespace — re-serialising JSON
+would rewrite spacing and escapes, and when the question is why a backend rejected something, what
+it actually received is the answer. **Format as JSON** indents a copy for reading. A body sent as
+`application/json` that is not JSON says so beside itself, since the proxy forwards bodies as bytes
+without parsing them and that mistake otherwise surfaces only as an unexplained 400 from the
+backend.
 
 Bodies are cut at 64 KB and binary payloads are summarised rather than mangled. Nothing is written
 to disk, and a restart clears it.

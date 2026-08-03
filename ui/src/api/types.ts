@@ -60,6 +60,9 @@ export interface TrafficSummary {
 export interface CapturedExchange extends TrafficSummary {
   targetUrl: string | null
 
+  /** The exception behind `error` as text, inner exceptions and stack traces included. */
+  exception: string | null
+
   // Client -> proxy
   requestHeaders: Record<string, string>
   requestBody: string | null

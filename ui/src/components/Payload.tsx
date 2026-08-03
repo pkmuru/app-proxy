@@ -1,5 +1,7 @@
-import { Code, Table, Text } from '@mantine/core'
-import { prettyBody } from '../format'
+import { useMemo } from 'react'
+import { Anchor, Code, Stack, Table, Text } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
+import { formatJson } from '../format'
 import { TokenView } from './TokenView'
 
 /** The token out of an "Authorization: Bearer <token>" header value, or null for anything else. */
@@ -79,7 +81,27 @@ export function HeaderList({
   )
 }
 
-export function BodyBlock({ body }: { body: string | null }) {
+/**
+ * A captured body, byte for byte as it went over the wire.
+ *
+ * Formatting is offered rather than applied. Re-serialising JSON rewrites whitespace and rewrites
+ * escapes — a newline inside a string is `\n` on the wire whatever the source looked like — so a
+ * pretty-printed view is a reconstruction, not the request. When the question is why a backend
+ * rejected something, what it actually received is the answer, and that is what shows by default.
+ */
+export function BodyBlock({
+  body,
+  contentType,
+}: {
+  body: string | null
+  /** What this body was declared as, so a body that contradicts it can be flagged. */
+  contentType?: string
+}) {
+  const [formatted, format] = useDisclosure(false)
+
+  // Bodies run to 64 KB and this re-renders on every toggle of any panel in the drawer.
+  const asJson = useMemo(() => formatJson(body), [body])
+
   if (!body) {
     return (
       <Text size="sm" c="dimmed">
@@ -88,9 +110,31 @@ export function BodyBlock({ body }: { body: string | null }) {
     )
   }
 
+  // The caller's mistake, forwarded as bytes and answered by the backend with a 400 that rarely
+  // explains itself. A cut body proves nothing — capture stops at 64 KB, mid-document.
+  const malformed =
+    asJson === null && /json/i.test(contentType ?? '') && !body.endsWith('…[truncated]')
+
   return (
-    <Code block style={{ maxHeight: 320, overflow: 'auto' }}>
-      {prettyBody(body)}
-    </Code>
+    <Stack gap={4}>
+      {malformed && (
+        <Text size="xs" c="orange" fw={600}>
+          Sent as {contentType}, but this is not valid JSON — the body below is what a backend
+          would have had to parse.
+        </Text>
+      )}
+
+      <Code block style={{ maxHeight: 320, overflow: 'auto' }}>
+        {formatted && asJson ? asJson : body}
+      </Code>
+
+      {/* Nothing to offer when formatting would not change anything — an empty toggle next to a
+          plain-text or already-indented body is just noise. */}
+      {asJson !== null && asJson !== body && (
+        <Anchor component="button" type="button" size="xs" onClick={format.toggle}>
+          {formatted ? 'Show it as it was sent' : 'Format as JSON'}
+        </Anchor>
+      )}
+    </Stack>
   )
 }
