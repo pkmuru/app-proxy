@@ -2,8 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import App from './App'
-import { initAuth } from './auth'
+import { AuthGate } from './AuthGate'
+import { createMsal, loadAuthConfig } from './auth'
 
 import '@mantine/core/styles.css'
 import './index.css'
@@ -14,16 +14,16 @@ const queryClient = new QueryClient({
   },
 })
 
-// MSAL has to know whether it is configured — and finish any sign-in coming back from Entra ID —
-// before anything renders, so the sign-in state is settled on the first paint rather than
-// flickering in afterwards.
-await initAuth()
+// Both settled before the first paint rather than flickering in afterwards: the Entra ID settings
+// the server holds, and any sign-in coming back from it.
+await loadAuthConfig()
+const instance = await createMsal()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MantineProvider defaultColorScheme="auto">
       <QueryClientProvider client={queryClient}>
-        <App />
+        <AuthGate instance={instance} />
       </QueryClientProvider>
     </MantineProvider>
   </StrictMode>,

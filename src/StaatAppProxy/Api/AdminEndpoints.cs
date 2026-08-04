@@ -39,13 +39,10 @@ public static class AdminEndpoints
                 instance = "https://login.microsoftonline.com";
             }
 
-            var enabled = !string.IsNullOrWhiteSpace(tenantId) && !string.IsNullOrWhiteSpace(clientId);
-
             return Results.Ok(new
             {
-                enabled,
                 clientId = clientId ?? "",
-                authority = enabled ? $"{instance.TrimEnd('/')}/{tenantId}" : "",
+                authority = $"{instance.TrimEnd('/')}/{tenantId}",
                 scopes,
             });
         });

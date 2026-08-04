@@ -19,7 +19,8 @@ import {
 import { useDisclosure } from '@mantine/hooks'
 import { api } from '../api/client'
 import type { TokenResult } from '../api/types'
-import { accessToken, authConfig, signIn, signOut, useAuth } from '../auth'
+import { useAccount, useMsal } from '@azure/msal-react'
+import { authConfig, useAccessToken } from '../auth'
 import { TokenView } from '../components/TokenView'
 
 /**
@@ -69,34 +70,20 @@ export function TokensPage() {
 
 function SignInCard({ onToken }: { onToken: (token: string) => void }) {
   const auth = authConfig()
-  const { account, error } = useAuth()
+  const { instance } = useMsal()
+  const account = useAccount()
+  const getToken = useAccessToken()
 
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-
-  if (!auth.enabled) {
-    return (
-      <Alert color="gray" title="1 · Sign-in is not configured">
-        <Text size="sm">
-          Set <Code>ClientAuth:TenantId</Code>, <Code>ClientAuth:ClientId</Code> and{' '}
-          <Code>ClientAuth:Scopes</Code> to sign in here. That needs an app registration with a{' '}
-          <b>Single-page application</b> platform whose redirect URI is this service&apos;s origin — a Web
-          platform will not do, MSAL.js refuses to redeem the code cross-origin.
-        </Text>
-        <Text size="sm" mt="xs">
-          Without it everything below still works: paste a token from anywhere else.
-        </Text>
-      </Alert>
-    )
-  }
 
   async function fetchToken() {
     setBusy(true)
     setFailure(null)
 
     try {
-      const result = await accessToken()
-      if (result) onToken(result)
+      const token = await getToken()
+      if (token) onToken(token)
     } catch (tokenError) {
       setFailure(tokenError instanceof Error ? tokenError.message : String(tokenError))
     } finally {
@@ -114,26 +101,21 @@ function SignInCard({ onToken }: { onToken: (token: string) => void }) {
           </Text>
         </div>
 
-        <Group gap="xs">
-          {account && (
+        {account && (
+          <Group gap="xs">
             <Button variant="default" size="xs" loading={busy} onClick={fetchToken}>
               Get access token
             </Button>
-          )}
-          <Button
-            size="xs"
-            variant={account ? 'default' : 'filled'}
-            loading={busy}
-            onClick={() => (account ? signOut() : signIn())}
-          >
-            {account ? 'Log out' : 'Log in'}
-          </Button>
-        </Group>
+            <Button size="xs" variant="default" onClick={() => instance.logoutRedirect({ account })}>
+              Log out
+            </Button>
+          </Group>
+        )}
       </Group>
 
-      {(error || failure) && (
+      {failure && (
         <Alert color="red" title="Entra ID refused" mt="sm">
-          {error ?? failure}
+          {failure}
         </Alert>
       )}
     </Paper>

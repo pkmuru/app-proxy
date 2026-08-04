@@ -1,6 +1,6 @@
 import { useState } from 'react'
+import { useAccount, useMsal } from '@azure/msal-react'
 import { Badge, Button, Group, AppShell, Tabs, Text, Title } from '@mantine/core'
-import { authConfig, signIn, signOut, useAuth } from './auth'
 import { EndpointsPage } from './pages/EndpointsPage'
 import { TrafficPage } from './pages/TrafficPage'
 import { TestPage } from './pages/TestPage'
@@ -35,7 +35,7 @@ export default function App() {
             </Text>
           </div>
 
-          <SignInButton onExplain={() => changeTab('tokens')} />
+          <SignedInAs />
         </Group>
 
         <Tabs value={tab} onChange={changeTab}>
@@ -59,48 +59,22 @@ export default function App() {
 }
 
 /**
- * Always present, so signing in is never something you have to go looking for. When Entra ID has
- * not been configured it sends you to the Tokens tab, which says what is missing.
+ * Who is signed in, and the way out. There is no way in: the app does not render at all until
+ * there is an account, so this is only ever shown to someone who has one.
  */
-function SignInButton({ onExplain }: { onExplain: () => void }) {
-  const { account, error } = useAuth()
-  const [busy, setBusy] = useState(false)
+function SignedInAs() {
+  const { instance } = useMsal()
+  const account = useAccount()
 
-  async function run(action: () => Promise<void>) {
-    setBusy(true)
-    try {
-      await action()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (account) {
-    return (
-      <Group gap="xs" wrap="nowrap" mt={2}>
-        <Badge variant="light" color="teal">
-          {account.name || account.username}
-        </Badge>
-        <Button size="xs" variant="default" loading={busy} onClick={() => run(signOut)}>
-          Log out
-        </Button>
-      </Group>
-    )
-  }
+  if (!account) return null
 
   return (
     <Group gap="xs" wrap="nowrap" mt={2}>
-      {error && (
-        <Text size="xs" c="red" maw={320} lineClamp={2} ta="right">
-          {error}
-        </Text>
-      )}
-      <Button
-        size="xs"
-        loading={busy}
-        onClick={() => (authConfig().enabled ? run(signIn) : onExplain())}
-      >
-        Log in
+      <Badge variant="light" color="teal">
+        {account.name || account.username}
+      </Badge>
+      <Button size="xs" variant="default" onClick={() => instance.logoutRedirect({ account })}>
+        Log out
       </Button>
     </Group>
   )

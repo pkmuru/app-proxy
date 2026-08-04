@@ -4,7 +4,6 @@ import {
   Alert,
   Badge,
   Button,
-  Code,
   Group,
   Paper,
   Select,
@@ -16,7 +15,7 @@ import {
   Title,
 } from '@mantine/core'
 import { api } from '../api/client'
-import { accessToken, authConfig, useAuth } from '../auth'
+import { useAccessToken } from '../auth'
 import { header, statusColor } from '../format'
 import { BodyBlock, HeaderList } from '../components/Payload'
 
@@ -30,8 +29,7 @@ interface TestResult {
 }
 
 export function TestPage() {
-  const auth = authConfig()
-  const { account } = useAuth()
+  const getToken = useAccessToken()
   const { data: config } = useQuery({ queryKey: ['config'], queryFn: api.config })
 
   const [method, setMethod] = useState('GET')
@@ -52,8 +50,8 @@ export function TestPage() {
     try {
       const headers: Record<string, string> = {}
 
-      if (attachToken && account) {
-        const token = await accessToken()
+      if (attachToken) {
+        const token = await getToken()
         if (token) headers.Authorization = `Bearer ${token}`
       }
 
@@ -133,20 +131,12 @@ export function TestPage() {
               size="sm"
               label="Attach my access token"
               checked={attachToken}
-              disabled={!account}
               onChange={(event) => setAttachToken(event.currentTarget.checked)}
             />
             <Button onClick={send} loading={sending}>
               Send
             </Button>
           </Group>
-
-          {attachToken && !account && (
-            <Text size="xs" c="dimmed">
-              {auth.enabled ? 'Log in' : 'Configure sign-in'} to attach a bearer token — see the Tokens tab.
-              Without one, endpoints using <Code>obo</Code> answer 401.
-            </Text>
-          )}
         </Stack>
       </Paper>
 

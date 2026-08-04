@@ -238,8 +238,9 @@ fail, and the UI says so.
 ### Signing in from the admin UI
 
 Testing an `obo` endpoint needs a real user token, which normally means fishing one out of another
-application. Instead the **Log in** button in the header signs you in and the **Tokens** tab uses
-the result directly. It is optional and off until configured:
+application. Instead the UI signs you in itself and the **Tokens** tab uses the result directly.
+Sign-in is required: the admin UI hands the page to Entra ID before it renders, so these settings
+have to be there:
 
 ```json
 "ClientAuth": {
@@ -258,8 +259,9 @@ one on the same registration. Give it delegated permission to the scope the prox
 token it receives has the proxy as its audience — exactly what the On-Behalf-Of exchange requires.
 
 The settings are served from the API at `/admin/api/client-auth`, so Entra ID is configured in one
-place rather than baked into the UI at build time. MSAL itself is only downloaded when sign-in is
-configured, and if it fails to start the rest of the UI still loads and says so.
+place rather than baked into the UI at build time. Sign-in itself is `@azure/msal-react`'s
+`MsalAuthenticationTemplate`: it starts the redirect when there is no account, renders the app once
+there is one, and shows what Entra ID objected to instead of the app when it refuses.
 
 ### The Tokens tab
 

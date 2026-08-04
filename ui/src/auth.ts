@@ -1,91 +1,24 @@
-import { useSyncExternalStore } from 'react'
-import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser'
+import { useCallback } from 'react'
+import { InteractionRequiredAuthError, PublicClientApplication } from '@azure/msal-browser'
+import type { IPublicClientApplication } from '@azure/msal-browser'
+import { useAccount, useMsal } from '@azure/msal-react'
 
 export interface ClientAuthConfig {
-  enabled: boolean
   clientId: string
   authority: string
   scopes: string[]
 }
 
-const DISABLED: ClientAuthConfig = { enabled: false, clientId: '', authority: '', scopes: [] }
-
-let config: ClientAuthConfig = DISABLED
-let msal: IPublicClientApplication | null = null
-
-// MSAL is a large dependency and most deployments never configure sign-in, so it is loaded on
-// demand rather than bundled into the initial download. Kept here for the instanceof check below.
-let msalModule: typeof import('@azure/msal-browser') | null = null
-
-export interface AuthState {
-  account: AccountInfo | null
-  /** The last sign-in failure, kept so the header button and the Tokens tab agree on what went wrong. */
-  error: string | null
-}
-
-// Held here rather than read back from MSAL on every render: useSyncExternalStore needs a stable
-// reference, and MSAL rebuilds the account object each time it is asked for one.
-let state: AuthState = { account: null, error: null }
-
-const listeners = new Set<() => void>()
-
-function update(next: Partial<AuthState>) {
-  state = { ...state, ...next }
-  listeners.forEach((listener) => listener())
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+let config: ClientAuthConfig = { clientId: '', authority: '', scopes: [] }
 
 /**
- * Reads the Entra ID settings the API serves and, when they are present, brings MSAL up.
+ * The Entra ID settings the API serves, read once before anything renders.
  *
- * Signing in is entirely optional — the proxy's own APIs are unauthenticated. It exists so a
- * developer can obtain a real user token and exercise endpoints configured with auth "obo".
+ * Signing in is what makes the user token available, so endpoints configured with auth "obo" can
+ * be exercised as a real person. The proxy's own APIs stay unauthenticated regardless.
  */
-export async function initAuth(): Promise<ClientAuthConfig> {
-  try {
-    config = await fetch('/admin/api/client-auth').then((response) => response.json())
-  } catch {
-    // The UI is useful without sign-in, so a failure here must not stop it loading.
-    return DISABLED
-  }
-
-  if (!config.enabled) return config
-
-  try {
-    msalModule = await import('@azure/msal-browser')
-    msal = await msalModule.createStandardPublicClientApplication({
-      auth: {
-        clientId: config.clientId,
-        authority: config.authority,
-        redirectUri: window.location.origin,
-      },
-      // Session storage keeps the token out of other tabs and drops it when the browser closes.
-      cache: { cacheLocation: 'sessionStorage' },
-    })
-
-    // Completes a sign-in coming back from Entra ID. Resolves to null when there is nothing to
-    // finish, which is every ordinary page load. MSAL takes the response back out of the address
-    // bar itself, and restores the tab the sign-in started from.
-    const redirected = await msal.handleRedirectPromise()
-    if (redirected) {
-      msal.setActiveAccount(redirected.account)
-    }
-
-    const [existing] = msal.getAllAccounts()
-    if (existing) {
-      msal.setActiveAccount(existing)
-      update({ account: existing })
-    }
-  } catch (error) {
-    // A tenant or client id that Entra ID will not recognise makes MSAL throw on the way up. That
-    // must not take the rest of the admin UI down with it — least of all the page that would
-    // explain the problem.
-    update({ error: `Sign-in could not start: ${describe(error)}` })
-  }
-
+export async function loadAuthConfig(): Promise<ClientAuthConfig> {
+  config = await fetch('/admin/api/client-auth').then((response) => response.json())
   return config
 }
 
@@ -93,66 +26,79 @@ export function authConfig(): ClientAuthConfig {
   return config
 }
 
-export function useAuth(): AuthState {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => state,
-  )
+/**
+ * An access token for the signed-in user: silent where possible, handing the page over when Entra
+ * ID wants to see them again. Resolves to null in that case, because the browser is already
+ * leaving — the token is in the cache by the time the app comes back up.
+ */
+export function useAccessToken(): () => Promise<string | null> {
+  const { instance } = useMsal()
+  const account = useAccount()
+
+  return useCallback(async () => {
+    if (!account) return null
+
+    const request = { scopes: config.scopes, account }
+
+    try {
+      return (await instance.acquireTokenSilent(request)).accessToken
+    } catch (error) {
+      if (error instanceof InteractionRequiredAuthError) {
+        await instance.acquireTokenRedirect(request)
+        return null
+      }
+
+      throw error
+    }
+  }, [instance, account])
 }
 
 /**
- * Hands the whole page over to Entra ID. Nothing after this runs unless the redirect fails to
- * start, and failures are recorded rather than thrown: the button that starts this sits in the
- * header with nowhere to show a message, so both it and the Tokens tab read the state.
+ * Brings MSAL up and finishes a sign-in coming back from Entra ID before React renders.
+ *
+ * <MsalProvider> calls handleRedirectPromise itself on mount, but with no say over how. This app
+ * routes on the hash, and so does the authorization code flow's response, so the two share the
+ * address bar: the code has to be redeemed where it lands rather than after navigating back to the
+ * tab sign-in started from, because that navigation only changes the fragment, which does not
+ * reload the page — leaving the code sitting in the URL unredeemed. Doing it here settles that
+ * first; the provider's own call then finds a spent response and resolves to null.
  */
-export async function signIn(): Promise<void> {
-  if (!msal) {
-    update({ error: state.error ?? 'Sign-in is unavailable: MSAL did not start.' })
-    return
-  }
+export async function createMsal(): Promise<IPublicClientApplication> {
+  const msal = new PublicClientApplication({
+    auth: {
+      clientId: config.clientId,
+      authority: config.authority,
+      redirectUri: window.location.origin,
+    },
+    // Session storage keeps the token out of other tabs and drops it when the browser closes.
+    cache: { cacheLocation: 'sessionStorage' },
+  })
 
-  update({ error: null })
-
-  try {
-    await msal.loginRedirect({ scopes: config.scopes })
-  } catch (error) {
-    update({ error: describe(error) })
-  }
-}
-
-export async function signOut(): Promise<void> {
-  if (!msal) return
+  await msal.initialize()
 
   try {
-    // Also a full-page redirect, so there is no state to clear here: the app comes back up with an
-    // empty cache and no active account.
-    await msal.logoutRedirect({ account: msal.getActiveAccount() ?? undefined })
-  } catch (error) {
-    update({ error: describe(error) })
-  }
-}
+    const redirected = await msal.handleRedirectPromise({ navigateToLoginRequestUrl: false })
 
-/** Silent where possible, handing the page over when Entra ID wants to see the user again. */
-export async function accessToken(): Promise<string | null> {
-  const account = state.account
-  if (!msal || !account) return null
+    // useAccount() and the token calls read the active account, which MSAL does not set by itself.
+    msal.setActiveAccount(redirected?.account ?? msal.getAllAccounts()[0] ?? null)
 
-  try {
-    const result = await msal.acquireTokenSilent({ scopes: config.scopes, account })
-    return result.accessToken
-  } catch (error) {
-    if (msalModule && error instanceof msalModule.InteractionRequiredAuthError) {
-      // Leaves the page, so the caller gets nothing back — there is nothing left to give it. The
-      // token is in the cache by the time the app comes back up, on the tab it left from.
-      await msal.acquireTokenRedirect({ scopes: config.scopes, account })
-      return null
+    if (redirected?.state) {
+      // Back to the tab sign-in started from, which MSAL no longer navigates to itself. Replaced
+      // rather than assigned, so the Back button does not lead to the bare URL.
+      window.history.replaceState(null, '', redirected.state)
     }
-
-    throw error
+  } catch {
+    // Left to MsalAuthenticationTemplate, which tries the sign-in again and shows the reason if
+    // that fails too. Throwing here would take the whole app down instead.
   }
+
+  // MSAL takes the response out of the address bar as it redeems it. One still sitting there was
+  // refused, and the hash router would read it as the name of a tab.
+  if (/[#&](code|error)=/.test(window.location.hash)) {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  }
+
+  return msal
 }
 
 /** Decodes the payload for display. The signature is not checked — this is a diagnostics view. */

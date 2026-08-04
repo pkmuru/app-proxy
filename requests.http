@@ -56,6 +56,13 @@ GET {{host}}/api/sse-demo
 ### endpoint (sseMode "concat"): { "result": "Hello, streaming world!" }
 GET {{host}}/api/sse-tokens
 
+### The raw typed stream — start, status, streaming, followup, end
+GET {{host}}/dev/sse-typed
+
+### The same stream with the progress events dropped by "sse-typed-demo"
+### (sseMode "typed"): { "result": "Hello, typed world!", "followup": [...] }
+GET {{host}}/api/sse-typed
+
 ###############################################################################
 # On-Behalf-Of — endpoint "orders", set "enabled": true in endpoints.json first
 ###############################################################################
